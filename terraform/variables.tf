@@ -54,3 +54,6 @@ variable "docker_image_tags" {
     appointment_service = "latest"
   }
 }
+
+
+
