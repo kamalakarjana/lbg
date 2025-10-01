@@ -56,7 +56,7 @@ jobs:
       id: init
       run: |
         cd terraform
-        terraform init -reconfigure -migrate-state -input=false
+        terraform init -reconfigure -input=false
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
