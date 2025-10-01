@@ -1,6 +1,6 @@
-environment = "prod"
+environment          = "prod"
 app_service_plan_sku = "S2"
-acr_sku = "Standard"
+acr_sku              = "Standard"
 
 tags = {
   Project     = "healthcare-app"
