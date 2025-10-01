@@ -26,7 +26,7 @@ output "ingress_ip" {
 
 data "kubernetes_service" "ingress_nginx" {
   depends_on = [helm_release.nginx_ingress]
-  
+
   metadata {
     name      = "nginx-ingress-ingress-nginx-controller"
     namespace = "ingress-nginx"

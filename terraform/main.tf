@@ -49,7 +49,7 @@ resource "azurerm_kubernetes_cluster" "main" {
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   dns_prefix          = "aks-${var.project_name}-${var.environment}"
-  kubernetes_version  = "1.27"
+  kubernetes_version  = "1.33.3"
 
   default_node_pool {
     name           = "default"
@@ -63,8 +63,11 @@ resource "azurerm_kubernetes_cluster" "main" {
   }
 
   network_profile {
-    network_plugin = "azure"
-    network_policy = "azure"
+    network_plugin     = "azure"
+    network_policy     = "azure"
+    service_cidr       = "10.2.0.0/16"    # Avoids overlap with 10.0.1.0/24
+    dns_service_ip     = "10.2.0.10"      # Must be inside service_cidr
+    #    docker_bridge_cidr = "172.17.0.1/16"
   }
 
   tags = merge(var.tags, { Environment = var.environment })

@@ -23,8 +23,8 @@ variable "tags" {
   description = "Tags to apply to all resources"
   type        = map(string)
   default = {
-    Project     = "healthcare-app"
-    ManagedBy   = "terraform"
+    Project   = "healthcare-app"
+    ManagedBy = "terraform"
   }
 }
 
