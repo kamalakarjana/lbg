@@ -51,12 +51,14 @@ jobs:
         cd terraform
         rm -rf .terraform
         rm -f .terraform.lock.hcl
+        rm -f terraform.tfstate*
+        rm -f *.backup
 
     - name: Terraform Init
       id: init
       run: |
         cd terraform
-        terraform init -reconfigure -input=false
+        terraform init -input=false
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
