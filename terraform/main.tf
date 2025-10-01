@@ -63,10 +63,10 @@ resource "azurerm_kubernetes_cluster" "main" {
   }
 
   network_profile {
-    network_plugin     = "azure"
-    network_policy     = "azure"
-    service_cidr       = "10.2.0.0/16"    # Avoids overlap with 10.0.1.0/24
-    dns_service_ip     = "10.2.0.10"      # Must be inside service_cidr
+    network_plugin = "azure"
+    network_policy = "azure"
+    service_cidr   = "10.2.0.0/16" # Avoids overlap with 10.0.1.0/24
+    dns_service_ip = "10.2.0.10"   # Must be inside service_cidr
     #    docker_bridge_cidr = "172.17.0.1/16"
   }
 
