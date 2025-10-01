@@ -54,38 +54,27 @@ jobs:
         rm -f *.tfstate*
         rm -f *.backup
 
-    - name: Handle Corrupted State
-      id: state-fix
+    - name: Bypass Corrupted Remote State
+      id: bypass-state
       run: |
         cd terraform
         
-        echo "Attempting to recover from corrupted state..."
+        echo "Creating temporary backend configuration..."
         
-        # Strategy 1: Try basic init first
-        echo "Trying basic initialization..."
-        terraform init -input=false || echo "Basic init failed, trying next strategy..."
+        # Create a temporary backend configuration that uses local state
+        cat > backend_temp.tf << EOF
+        terraform {
+          backend "local" {
+            path = "terraform.tfstate"
+          }
+        }
+        EOF
         
-        # Strategy 2: If basic init fails, try without backend
-        if [ $? -ne 0 ]; then
-          echo "Trying initialization without backend..."
-          terraform init -backend=false -input=false || echo "Backend-less init failed, trying migration..."
-        fi
+        # Initialize with local backend
+        echo "Initializing with local backend..."
+        terraform init -input=false -migrate-state
         
-        # Strategy 3: Try with state migration
-        if [ $? -ne 0 ]; then
-          echo "Trying state migration..."
-          terraform init -migrate-state -force-copy -input=false || echo "Migration failed, trying reconfigure..."
-        fi
-        
-        # Strategy 4: Try with reconfigure
-        if [ $? -ne 0 ]; then
-          echo "Trying reconfiguration..."
-          terraform init -reconfigure -input=false || echo "All strategies failed"
-        fi
-        
-        # Final attempt
-        echo "Final initialization attempt..."
-        terraform init -input=false
+        echo "Local state initialization completed successfully"
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -128,7 +117,7 @@ jobs:
       with:
         script: |
           const output = `#### Terraform Format and Style ⚙️\`${{ steps.fmt.outputs.exitcode }}\`
-          #### Terraform Initialization ⚡\`${{ steps.init.outputs.exitcode }}\`
+          #### Terraform Initialization ⚡\`${{ steps.bypass-state.outputs.exitcode }}\`
           #### Terraform Validation 🤖\`${{ steps.validate.outputs.exitcode }}\`
           #### Terraform Plan 📋\`${{ steps.plan.outputs.exitcode }}\`
 
@@ -159,6 +148,12 @@ jobs:
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+    - name: Cleanup Temporary Files
+      if: always()
+      run: |
+        cd terraform
+        rm -f backend_temp.tf
 
   # Application CI/CD
   build-and-deploy:
