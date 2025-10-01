@@ -18,6 +18,11 @@ jobs:
     name: 'Terraform'
     runs-on: ubuntu-latest
     environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+    
+    # Add outputs to share with other jobs
+    outputs:
+      resource_group_name: ${{ steps.set-outputs.outputs.resource_group_name }}
+      aks_cluster_name: ${{ steps.set-outputs.outputs.aks_cluster_name }}
 
     steps:
     - name: Checkout code
@@ -32,9 +37,18 @@ jobs:
       id: fmt
       run: terraform fmt -check -recursive terraform/
 
+    - name: Clean Terraform directory
+      id: clean
+      run: |
+        cd terraform
+        rm -rf .terraform
+        rm -f .terraform.lock.hcl
+
     - name: Terraform Init
       id: init
-      run: terraform -chdir=terraform init
+      run: |
+        cd terraform
+        terraform init -reconfigure -migrate-state -input=false
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -45,18 +59,25 @@ jobs:
       id: validate
       run: terraform -chdir=terraform validate
 
+    - name: Set outputs for other jobs
+      id: set-outputs
+      run: |
+        echo "resource_group_name=$RESOURCE_GROUP" >> $GITHUB_OUTPUT
+        echo "aks_cluster_name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
+
     - name: Terraform Plan
       id: plan
       if: github.event_name == 'pull_request'
       run: |
+        cd terraform
         ENVIRONMENT="dev"
-        if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+        if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
           ENVIRONMENT="prod"
         fi
 
-        terraform -chdir=terraform plan \
+        terraform plan \
           -var="environment=${ENVIRONMENT}" \
-          -var="docker_image_tags={\"patient_service\"=\"${GITHUB_SHA}\",\"appointment_service\"=\"${GITHUB_SHA}\"}" \
+          -var="docker_image_tags={\"patient_service\"=\"${{ github.sha }}\",\"appointment_service\"=\"${{ github.sha }}\"}" \
           -out=tfplan
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -69,10 +90,10 @@ jobs:
       uses: actions/github-script@v6
       with:
         script: |
-          const output = `#### Terraform Format and Style ðŸ–Œ\`${{ steps.fmt.outputs.exitcode }}\`
-          #### Terraform Initialization âš™ï¸\`${{ steps.init.outputs.exitcode }}\`
-          #### Terraform Validation ðŸ¤–\`${{ steps.validate.outputs.exitcode }}\`
-          #### Terraform Plan ðŸ“–\`${{ steps.plan.outputs.exitcode }}\`
+          const output = `#### Terraform Format and Style ⚙️\`${{ steps.fmt.outputs.exitcode }}\`
+          #### Terraform Initialization ⚡\`${{ steps.init.outputs.exitcode }}\`
+          #### Terraform Validation 🤖\`${{ steps.validate.outputs.exitcode }}\`
+          #### Terraform Plan 📋\`${{ steps.plan.outputs.exitcode }}\`
 
           <details><summary>Show Plan</summary>
 
@@ -92,9 +113,10 @@ jobs:
     - name: Terraform Apply
       if: github.ref == 'refs/heads/main'
       run: |
-        terraform -chdir=terraform apply -auto-approve \
+        cd terraform
+        terraform apply -auto-approve \
           -var="environment=prod" \
-          -var="docker_image_tags={\"patient_service\"=\"${GITHUB_SHA}\",\"appointment_service\"=\"${GITHUB_SHA}\"}"
+          -var="docker_image_tags={\"patient_service\"=\"${{ github.sha }}\",\"appointment_service\"=\"${{ github.sha }}\"}"
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -160,27 +182,42 @@ jobs:
 
     - name: Deploy to AKS
       run: |
+        # Determine namespace based on branch
+        if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          NAMESPACE="healthcare-prod"
+        else
+          NAMESPACE="healthcare-dev"
+        fi
+
+        # Update deployments with new images
         kubectl set image deployment/patient-service \
           patient-service=${{ secrets.ACR_LOGIN_SERVER }}/patient-service:${{ github.sha }} \
-          -n healthcare-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+          -n $NAMESPACE
 
         kubectl set image deployment/appointment-service \
           appointment-service=${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:${{ github.sha }} \
-          -n healthcare-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+          -n $NAMESPACE
 
+        # Wait for rollout to complete
         kubectl rollout status deployment/patient-service \
-          -n healthcare-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }} \
+          -n $NAMESPACE \
           --timeout=300s
 
         kubectl rollout status deployment/appointment-service \
-          -n healthcare-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }} \
+          -n $NAMESPACE \
           --timeout=300s
 
     - name: Verify deployment
       run: |
-        kubectl get pods -n healthcare-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-        kubectl get services -n healthcare-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-        kubectl get ingress -n healthcare-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+        if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          NAMESPACE="healthcare-prod"
+        else
+          NAMESPACE="healthcare-dev"
+        fi
+        
+        kubectl get pods -n $NAMESPACE
+        kubectl get services -n $NAMESPACE
+        kubectl get ingress -n $NAMESPACE
 
   # Integration Tests
   integration-tests:
@@ -205,13 +242,16 @@ jobs:
     - name: Run integration tests
       run: |
         INGRESS_IP=$(kubectl get ingress healthcare-ingress -n healthcare-prod -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-
-        sleep 30
-
+        
+        # Wait for services to be ready
+        echo "Waiting for services to be ready..."
+        sleep 60
+        
+        # Test health endpoints
+        echo "Testing health endpoints..."
         curl -f http://$INGRESS_IP/patients/health || exit 1
         curl -f http://$INGRESS_IP/patients || exit 1
         curl -f http://$INGRESS_IP/appointments/health || exit 1
         curl -f http://$INGRESS_IP/appointments || exit 1
 
         echo "All integration tests passed!"
-
