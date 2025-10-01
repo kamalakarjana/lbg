@@ -24,6 +24,7 @@ output "ingress_ip" {
   value       = helm_release.nginx_ingress.status != "deployed" ? "Pending" : data.kubernetes_service.ingress_nginx.status.0.load_balancer.0.ingress.0.ip
 }
 
+
 data "kubernetes_service" "ingress_nginx" {
   depends_on = [helm_release.nginx_ingress]
 
