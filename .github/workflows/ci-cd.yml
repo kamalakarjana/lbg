@@ -12,6 +12,10 @@ env:
   CLUSTER_NAME: 'aks-healthcare-app-${{ github.ref_name }}'
   CLUSTER_RESOURCE_GROUP: 'rg-aks-healthcare-app-${{ github.ref_name }}'
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   # Terraform Infrastructure CI/CD
   terraform:
@@ -136,6 +140,10 @@ jobs:
     needs: terraform
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+    
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
     - name: Checkout code
@@ -235,6 +243,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-deploy
     if: github.ref == 'refs/heads/main'
+    
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
     - name: Checkout code
