@@ -12,10 +12,6 @@ env:
   CLUSTER_NAME: 'aks-healthcare-app-${{ github.ref_name }}'
   CLUSTER_RESOURCE_GROUP: 'rg-aks-healthcare-app-${{ github.ref_name }}'
 
-# REMOVE id-token permission when using client secret
-permissions:
-  contents: read
-
 jobs:
   # Terraform Infrastructure CI/CD
   terraform:
@@ -31,15 +27,14 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Azure Login with Client Secret
-      uses: azure/login@v1
-      with:
-        client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-        # Force using client secret instead of OIDC
-        enable-AzPSSession: false
+    - name: Azure CLI Login
+      run: |
+        az login --service-principal \
+          -u ${{ secrets.AZURE_CLIENT_ID }} \
+          -p ${{ secrets.AZURE_CLIENT_SECRET }} \
+          --tenant ${{ secrets.AZURE_TENANT_ID }}
+        
+        az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v2
@@ -143,22 +138,19 @@ jobs:
     needs: terraform
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-    
-    permissions:
-      contents: read
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Azure Login with Client Secret
-      uses: azure/login@v1
-      with:
-        client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-        enable-AzPSSession: false
+    - name: Azure CLI Login
+      run: |
+        az login --service-principal \
+          -u ${{ secrets.AZURE_CLIENT_ID }} \
+          -p ${{ secrets.AZURE_CLIENT_SECRET }} \
+          --tenant ${{ secrets.AZURE_TENANT_ID }}
+        
+        az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
@@ -247,22 +239,19 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-deploy
     if: github.ref == 'refs/heads/main'
-    
-    permissions:
-      contents: read
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Azure Login with Client Secret
-      uses: azure/login@v1
-      with:
-        client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-        enable-AzPSSession: false
+    - name: Azure CLI Login
+      run: |
+        az login --service-principal \
+          -u ${{ secrets.AZURE_CLIENT_ID }} \
+          -p ${{ secrets.AZURE_CLIENT_SECRET }} \
+          --tenant ${{ secrets.AZURE_TENANT_ID }}
+        
+        az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
     - name: Set up kubectl
       uses: azure/setup-kubectl@v3
