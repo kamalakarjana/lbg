@@ -51,13 +51,40 @@ jobs:
         cd terraform
         rm -rf .terraform
         rm -f .terraform.lock.hcl
-        rm -f terraform.tfstate*
+        rm -f *.tfstate*
         rm -f *.backup
 
-    - name: Terraform Init
-      id: init
+    - name: Handle Corrupted State
+      id: state-fix
       run: |
         cd terraform
+        
+        echo "Attempting to recover from corrupted state..."
+        
+        # Strategy 1: Try basic init first
+        echo "Trying basic initialization..."
+        terraform init -input=false || echo "Basic init failed, trying next strategy..."
+        
+        # Strategy 2: If basic init fails, try without backend
+        if [ $? -ne 0 ]; then
+          echo "Trying initialization without backend..."
+          terraform init -backend=false -input=false || echo "Backend-less init failed, trying migration..."
+        fi
+        
+        # Strategy 3: Try with state migration
+        if [ $? -ne 0 ]; then
+          echo "Trying state migration..."
+          terraform init -migrate-state -force-copy -input=false || echo "Migration failed, trying reconfigure..."
+        fi
+        
+        # Strategy 4: Try with reconfigure
+        if [ $? -ne 0 ]; then
+          echo "Trying reconfiguration..."
+          terraform init -reconfigure -input=false || echo "All strategies failed"
+        fi
+        
+        # Final attempt
+        echo "Final initialization attempt..."
         terraform init -input=false
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
