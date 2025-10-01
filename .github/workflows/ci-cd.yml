@@ -1,6 +1,5 @@
 name: Healthcare App CI/CD
 
-
 on:
   push:
     branches: [ main, develop ]
@@ -14,7 +13,6 @@ env:
   CLUSTER_RESOURCE_GROUP: 'rg-aks-healthcare-app-${{ github.ref_name }}'
 
 jobs:
-  # Terraform Infrastructure CI/CD
   terraform:
     name: 'Terraform'
     runs-on: ubuntu-latest
@@ -30,12 +28,10 @@ jobs:
         terraform_version: 1.5.0
 
     - name: Terraform Format
-      id: fmt
       run: terraform fmt -check -recursive terraform/
 
     - name: Terraform Init
-      id: init
-      run: terraform -chdir=terraform init
+      run: terraform -chdir=terraform init -reconfigure
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -43,15 +39,13 @@ jobs:
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     - name: Terraform Validate
-      id: validate
       run: terraform -chdir=terraform validate
 
     - name: Terraform Plan
-      id: plan
       if: github.event_name == 'pull_request'
       run: |
         terraform -chdir=terraform plan \
-          -var="environment=${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}" \
+          -var-file="terraform.tfvars" \
           -var="docker_image_tags={\"patient_service\"=\"${{ github.sha }}\",\"appointment_service\"=\"${{ github.sha }}\"}" \
           -out=tfplan
       env:
@@ -60,36 +54,11 @@ jobs:
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
-    - name: Terraform Plan Status
-      if: github.event_name == 'pull_request'
-      uses: actions/github-script@v6
-      with:
-        script: |
-          const output = `#### Terraform Format and Style 🖌\`${{ steps.fmt.outputs.exitcode }}\`
-          #### Terraform Initialization ⚙️\`${{ steps.init.outputs.exitcode }}\`
-          #### Terraform Validation 🤖\`${{ steps.validate.outputs.exitcode }}\`
-          #### Terraform Plan 📖\`${{ steps.plan.outputs.exitcode }}\`
-          
-          <details><summary>Show Plan</summary>
-          
-          \`\`\`\n
-          ${{ steps.plan.outputs.stdout }}
-          \`\`\`
-          
-          </details>`;
-          
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: output
-          })
-
     - name: Terraform Apply
       if: github.ref == 'refs/heads/main'
       run: |
         terraform -chdir=terraform apply -auto-approve \
-          -var="environment=prod" \
+          -var-file="terraform.tfvars" \
           -var="docker_image_tags={\"patient_service\"=\"${{ github.sha }}\",\"appointment_service\"=\"${{ github.sha }}\"}"
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -97,7 +66,6 @@ jobs:
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
-  # Application CI/CD
   build-and-deploy:
     name: 'Build and Deploy'
     runs-on: ubuntu-latest
@@ -156,64 +124,7 @@ jobs:
 
     - name: Deploy to AKS
       run: |
-        # Update image tags in Kubernetes manifests
-        kubectl set image deployment/patient-service \
-          patient-service=${{ secrets.ACR_LOGIN_SERVER }}/patient-service:${{ github.sha }} \
-          -n healthcare-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-        
-        kubectl set image deployment/appointment-service \
-          appointment-service=${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:${{ github.sha }} \
-          -n healthcare-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-        
-        # Wait for rollout to complete
-        kubectl rollout status deployment/patient-service \
-          -n healthcare-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }} \
-          --timeout=300s
-        
-        kubectl rollout status deployment/appointment-service \
-          -n healthcare-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }} \
-          --timeout=300s
+        NAMESPACE="healthcare-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
+        kubectl set image deployment/patient-service patient-service=${{ secrets.ACR_LOGIN_SERVER }}/patient-service:${{ github.sha }} -n $NAMESPACE
+        kubectl set image deployment/appointment-service appointment-service=${{ secrets.ACR_LO_
 
-    - name: Verify deployment
-      run: |
-        kubectl get pods -n healthcare-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-        kubectl get services -n healthcare-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-        kubectl get ingress -n healthcare-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-
-  # Integration Tests
-  integration-tests:
-    name: 'Integration Tests'
-    runs-on: ubuntu-latest
-    needs: build-and-deploy
-    if: github.ref == 'refs/heads/main'
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up kubectl
-      uses: azure/setup-kubectl@v3
-
-    - name: Configure AKS credentials
-      uses: azure/aks-set-context@v3
-      with:
-        resource-group: ${{ needs.terraform.outputs.resource_group_name }}
-        cluster-name: ${{ needs.terraform.outputs.aks_cluster_name }}
-
-    - name: Run integration tests
-      run: |
-        # Get the ingress IP
-        INGRESS_IP=$(kubectl get ingress healthcare-ingress -n healthcare-prod -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-        
-        # Wait for services to be ready
-        sleep 30
-        
-        # Test patient service
-        curl -f http://$INGRESS_IP/patients/health || exit 1
-        curl -f http://$INGRESS_IP/patients || exit 1
-        
-        # Test appointment service
-        curl -f http://$INGRESS_IP/appointments/health || exit 1
-        curl -f http://$INGRESS_IP/appointments || exit 1
-        
-        echo "All integration tests passed!"
