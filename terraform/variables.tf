@@ -24,19 +24,33 @@ variable "tags" {
   type        = map(string)
   default = {
     Project     = "healthcare-app"
-    Environment = "dev"
     ManagedBy   = "terraform"
   }
 }
 
-variable "app_service_plan_sku" {
-  description = "SKU for App Service Plan"
+variable "aks_node_count" {
+  description = "Number of AKS worker nodes"
+  type        = number
+  default     = 2
+}
+
+variable "aks_vm_size" {
+  description = "VM size for AKS nodes"
   type        = string
-  default     = "B1"
+  default     = "Standard_B2s"
 }
 
 variable "acr_sku" {
   description = "SKU for Azure Container Registry"
   type        = string
   default     = "Basic"
+}
+
+variable "docker_image_tags" {
+  description = "Docker image tags for services"
+  type        = map(string)
+  default = {
+    patient_service     = "latest"
+    appointment_service = "latest"
+  }
 }

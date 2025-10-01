@@ -1,121 +1,79 @@
-terraform {
-  required_version = ">= 1.0.0"
-  
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 3.0"
-    }
-  }
-
-  backend "azurerm" {
-    # This will be set in GitHub Actions
-    resource_group_name  = "tfstate"
-    storage_account_name = "tfstate${random_integer.sa_result.result}"
-    container_name       = "tfstate"
-    key                  = "terraform.tfstate"
-  }
-}
-
 provider "azurerm" {
   features {}
 }
 
-resource "random_integer" "sa_result" {
-  min = 1000
-  max = 9999
+# Random string for unique resource names
+resource "random_string" "suffix" {
+  length  = 6
+  special = false
+  upper   = false
 }
 
 # Resource Group
 resource "azurerm_resource_group" "main" {
-  name     = "rg-${var.project_name}-${var.environment}"
+  name     = "rg-${var.project_name}-${var.environment}-${random_string.suffix.result}"
   location = var.location
-  tags     = var.tags
+  tags     = merge(var.tags, { Environment = var.environment })
 }
 
 # Container Registry
 resource "azurerm_container_registry" "acr" {
-  name                = "acr${var.project_name}${var.environment}${random_integer.sa_result.result}"
+  name                = "acr${var.project_name}${var.environment}${random_string.suffix.result}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
-  sku                 = "Basic"
+  sku                 = var.acr_sku
   admin_enabled       = true
-  tags                = var.tags
+  tags                = merge(var.tags, { Environment = var.environment })
 }
 
-# App Service Plan
-resource "azurerm_service_plan" "main" {
-  name                = "asp-${var.project_name}-${var.environment}"
+# Virtual Network
+resource "azurerm_virtual_network" "main" {
+  name                = "vnet-${var.project_name}-${var.environment}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
-  os_type             = "Linux"
-  sku_name            = var.app_service_plan_sku
-  tags                = var.tags
+  address_space       = ["10.0.0.0/16"]
+  tags                = merge(var.tags, { Environment = var.environment })
 }
 
-# Patient Service Web App
-resource "azurerm_linux_web_app" "patient_service" {
-  name                = "app-${var.project_name}-patient-${var.environment}"
+# Subnet for AKS
+resource "azurerm_subnet" "aks" {
+  name                 = "snet-aks-${var.project_name}-${var.environment}"
+  resource_group_name  = azurerm_resource_group.main.name
+  virtual_network_name = azurerm_virtual_network.main.name
+  address_prefixes     = ["10.0.1.0/24"]
+}
+
+# AKS Cluster
+resource "azurerm_kubernetes_cluster" "main" {
+  name                = "aks-${var.project_name}-${var.environment}"
   resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_service_plan.main.location
-  service_plan_id     = azurerm_service_plan.main.id
+  location            = azurerm_resource_group.main.location
+  dns_prefix          = "aks-${var.project_name}-${var.environment}"
+  kubernetes_version  = "1.27"
 
-  site_config {
-    application_stack {
-      docker_image     = "${azurerm_container_registry.acr.login_server}/patient-service:latest"
-      docker_image_tag = "latest"
-    }
-    always_on = true
-  }
-
-  app_settings = {
-    WEBSITES_PORT = "3000"
-    DOCKER_REGISTRY_SERVER_URL      = "https://${azurerm_container_registry.acr.login_server}"
-    DOCKER_REGISTRY_SERVER_USERNAME = azurerm_container_registry.acr.admin_username
-    DOCKER_REGISTRY_SERVER_PASSWORD = azurerm_container_registry.acr.admin_password
+  default_node_pool {
+    name           = "default"
+    node_count     = var.aks_node_count
+    vm_size        = var.aks_vm_size
+    vnet_subnet_id = azurerm_subnet.aks.id
   }
 
   identity {
     type = "SystemAssigned"
   }
 
-  tags = var.tags
+  network_profile {
+    network_plugin = "azure"
+    network_policy = "azure"
+  }
+
+  tags = merge(var.tags, { Environment = var.environment })
 }
 
-# Appointment Service Web App
-resource "azurerm_linux_web_app" "appointment_service" {
-  name                = "app-${var.project_name}-appointment-${var.environment}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_service_plan.main.location
-  service_plan_id     = azurerm_service_plan.main.id
-
-  site_config {
-    application_stack {
-      docker_image     = "${azurerm_container_registry.acr.login_server}/appointment-service:latest"
-      docker_image_tag = "latest"
-    }
-    always_on = true
-  }
-
-  app_settings = {
-    WEBSITES_PORT = "3001"
-    DOCKER_REGISTRY_SERVER_URL      = "https://${azurerm_container_registry.acr.login_server}"
-    DOCKER_REGISTRY_SERVER_USERNAME = azurerm_container_registry.acr.admin_username
-    DOCKER_REGISTRY_SERVER_PASSWORD = azurerm_container_registry.acr.admin_password
-  }
-
-  identity {
-    type = "SystemAssigned"
-  }
-
-  tags = var.tags
-}
-
-# Application Insights
-resource "azurerm_application_insights" "main" {
-  name                = "ai-${var.project_name}-${var.environment}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  application_type    = "web"
-  tags                = var.tags
+# Role assignment for AKS to pull from ACR
+resource "azurerm_role_assignment" "aks_acr" {
+  principal_id                     = azurerm_kubernetes_cluster.main.kubelet_identity[0].object_id
+  role_definition_name             = "AcrPull"
+  scope                            = azurerm_container_registry.acr.id
+  skip_service_principal_aad_check = true
 }
