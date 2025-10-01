@@ -5,138 +5,70 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        options:
+        - dev
+        - staging
+        - prod
+      deploy_infra:
+        type: boolean
+        description: 'Deploy infrastructure with Terraform'
+        required: true
+        default: false
 
 env:
-  AZURE_CONTAINER_REGISTRY: 'acrhealthcareapp${{ github.run_number }}'
-  RESOURCE_GROUP: 'rg-healthcare-app-${{ github.ref_name }}'
-  CLUSTER_NAME: 'aks-healthcare-app-${{ github.ref_name }}'
-  CLUSTER_RESOURCE_GROUP: 'rg-aks-healthcare-app-${{ github.ref_name }}'
+  AZURE_CONTAINER_REGISTRY: healthcareappacr
+  RESOURCE_GROUP: rg-healthcare-app
+  TERRAFORM_VERSION: 1.5.0
 
 jobs:
-  # Terraform Infrastructure CI/CD
-  terraform:
-    name: 'Terraform'
+  # -------------------
+  # Run Tests
+  # -------------------
+  test:
     runs-on: ubuntu-latest
-    environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+    strategy:
+      matrix:
+        service: [patient-service, appointment-service]
     
-    # Add outputs to share with other jobs
-    outputs:
-      resource_group_name: ${{ steps.set-outputs.outputs.resource_group_name }}
-      aks_cluster_name: ${{ steps.set-outputs.outputs.aks_cluster_name }}
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v2
+    - uses: actions/setup-node@v4
       with:
-        terraform_version: 1.5.0
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: src/${{ matrix.service }}/package-lock.json
 
-    - name: Terraform Format
-      id: fmt
-      run: terraform fmt -check -recursive terraform/
-
-    - name: Clean Terraform directory
-      id: clean
+    - name: Install dependencies
       run: |
-        cd terraform
-        rm -rf .terraform
-        rm -f .terraform.lock.hcl
+        cd src/${{ matrix.service }}
+        npm install
 
-    - name: Terraform Init
-      id: init
+    - name: Run tests
       run: |
-        cd terraform
-        terraform init -reconfigure -migrate-state -input=false
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        cd src/${{ matrix.service }}
+        npm test
 
-    - name: Terraform Validate
-      id: validate
-      run: terraform -chdir=terraform validate
-
-    - name: Set outputs for other jobs
-      id: set-outputs
-      run: |
-        echo "resource_group_name=$RESOURCE_GROUP" >> $GITHUB_OUTPUT
-        echo "aks_cluster_name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
-
-    - name: Terraform Plan
-      id: plan
-      if: github.event_name == 'pull_request'
-      run: |
-        cd terraform
-        ENVIRONMENT="dev"
-        if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-          ENVIRONMENT="prod"
-        fi
-
-        terraform plan \
-          -var="environment=${ENVIRONMENT}" \
-          -var="docker_image_tags={\"patient_service\"=\"${{ github.sha }}\",\"appointment_service\"=\"${{ github.sha }}\"}" \
-          -out=tfplan
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Terraform Plan Status
-      if: github.event_name == 'pull_request'
-      uses: actions/github-script@v6
-      with:
-        script: |
-          const output = `#### Terraform Format and Style ⚙️\`${{ steps.fmt.outputs.exitcode }}\`
-          #### Terraform Initialization ⚡\`${{ steps.init.outputs.exitcode }}\`
-          #### Terraform Validation 🤖\`${{ steps.validate.outputs.exitcode }}\`
-          #### Terraform Plan 📋\`${{ steps.plan.outputs.exitcode }}\`
-
-          <details><summary>Show Plan</summary>
-
-          \`\`\`\n
-          ${{ steps.plan.outputs.stdout }}
-          \`\`\`
-
-          </details>`;
-
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: output
-          })
-
-    - name: Terraform Apply
-      if: github.ref == 'refs/heads/main'
-      run: |
-        cd terraform
-        terraform apply -auto-approve \
-          -var="environment=prod" \
-          -var="docker_image_tags={\"patient_service\"=\"${{ github.sha }}\",\"appointment_service\"=\"${{ github.sha }}\"}"
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-  # Application CI/CD
-  build-and-deploy:
-    name: 'Build and Deploy'
+  # -------------------
+  # Build & Push Docker Images
+  # -------------------
+  build-and-push:
     runs-on: ubuntu-latest
-    needs: terraform
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
-    environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-
+    needs: test
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        service: [patient-service, appointment-service]
+    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
+    - uses: actions/checkout@v4
 
     - name: Log in to Azure Container Registry
       uses: azure/docker-login@v1
@@ -145,113 +77,144 @@ jobs:
         username: ${{ secrets.ACR_USERNAME }}
         password: ${{ secrets.ACR_PASSWORD }}
 
-    - name: Build and push Patient Service
-      uses: docker/build-push-action@v4
-      with:
-        context: ./patient-service
-        file: ./patient-service/Dockerfile
-        push: true
-        tags: |
-          ${{ secrets.ACR_LOGIN_SERVER }}/patient-service:${{ github.sha }}
-          ${{ secrets.ACR_LOGIN_SERVER }}/patient-service:latest
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-    - name: Build and push Appointment Service
-      uses: docker/build-push-action@v4
-      with:
-        context: ./appointment-service
-        file: ./appointment-service/Dockerfile
-        push: true
-        tags: |
-          ${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:${{ github.sha }}
-          ${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:latest
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-    - name: Set up kubectl
-      uses: azure/setup-kubectl@v3
-      with:
-        version: 'v1.27.0'
-
-    - name: Configure AKS credentials
-      uses: azure/aks-set-context@v3
-      with:
-        resource-group: ${{ needs.terraform.outputs.resource_group_name }}
-        cluster-name: ${{ needs.terraform.outputs.aks_cluster_name }}
-
-    - name: Deploy to AKS
+    - name: Build & Push image
       run: |
-        # Determine namespace based on branch
-        if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-          NAMESPACE="healthcare-prod"
-        else
-          NAMESPACE="healthcare-dev"
-        fi
+        cd src/${{ matrix.service }}
+        docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:latest .
+        docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:latest
 
-        # Update deployments with new images
-        kubectl set image deployment/patient-service \
-          patient-service=${{ secrets.ACR_LOGIN_SERVER }}/patient-service:${{ github.sha }} \
-          -n $NAMESPACE
+    - run: docker logout ${{ secrets.ACR_LOGIN_SERVER }}
 
-        kubectl set image deployment/appointment-service \
-          appointment-service=${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:${{ github.sha }} \
-          -n $NAMESPACE
-
-        # Wait for rollout to complete
-        kubectl rollout status deployment/patient-service \
-          -n $NAMESPACE \
-          --timeout=300s
-
-        kubectl rollout status deployment/appointment-service \
-          -n $NAMESPACE \
-          --timeout=300s
-
-    - name: Verify deployment
-      run: |
-        if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-          NAMESPACE="healthcare-prod"
-        else
-          NAMESPACE="healthcare-dev"
-        fi
-        
-        kubectl get pods -n $NAMESPACE
-        kubectl get services -n $NAMESPACE
-        kubectl get ingress -n $NAMESPACE
-
-  # Integration Tests
-  integration-tests:
-    name: 'Integration Tests'
+  # -------------------
+  # Terraform Plan for Dev/Staging/Prod
+  # -------------------
+  terraform-plan:
     runs-on: ubuntu-latest
-    needs: build-and-deploy
-    if: github.ref == 'refs/heads/main'
+    needs: test
+    if: github.event_name == 'pull_request'
+    strategy:
+      matrix:
+        environment: [dev, staging, prod]
+    defaults:
+      run:
+        working-directory: ./terraform
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-    - name: Set up kubectl
-      uses: azure/setup-kubectl@v3
-
-    - name: Configure AKS credentials
-      uses: azure/aks-set-context@v3
+    - uses: hashicorp/setup-terraform@v3
       with:
-        resource-group: ${{ needs.terraform.outputs.resource_group_name }}
-        cluster-name: ${{ needs.terraform.outputs.aks_cluster_name }}
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
 
-    - name: Run integration tests
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Terraform Format
+      run: terraform fmt -check
+
+    - name: Terraform Init
       run: |
-        INGRESS_IP=$(kubectl get ingress healthcare-ingress -n healthcare-prod -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-        
-        # Wait for services to be ready
-        echo "Waiting for services to be ready..."
-        sleep 60
-        
-        # Test health endpoints
-        echo "Testing health endpoints..."
-        curl -f http://$INGRESS_IP/patients/health || exit 1
-        curl -f http://$INGRESS_IP/patients || exit 1
-        curl -f http://$INGRESS_IP/appointments/health || exit 1
-        curl -f http://$INGRESS_IP/appointments || exit 1
+        terraform init -backend-config="resource_group_name=tfstate" \
+          -backend-config="storage_account_name=${{ secrets.TF_STATE_SA }}" \
+          -backend-config="container_name=tfstate" \
+          -backend-config="key=${{ matrix.environment }}.tfstate"
 
-        echo "All integration tests passed!"
+    - name: Terraform Validate
+      run: terraform validate
+
+    - name: Terraform Plan (${{ matrix.environment }})
+      id: plan
+      run: terraform plan -var-file=environments/${{ matrix.environment }}.tfvars
+
+    - name: Update PR with Plan
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const env = "${{ matrix.environment }}";
+          const output = `
+          ### Terraform Plan for **${env}** 📖
+          - Format: \`${{ steps.format.outcome }}\`
+          - Validate: \`${{ steps.validate.outcome }}\`
+          - Plan: \`${{ steps.plan.outcome }}\`
+
+          <details><summary>Show Plan</summary>
+          \`\`\`
+          ${process.env.PLAN}
+          \`\`\`
+          </details>`;
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: output
+          })
+      env:
+        PLAN: "terraform\n${{ steps.plan.outputs.stdout }}"
+
+  # -------------------
+  # Terraform Apply
+  # -------------------
+  terraform-apply:
+    runs-on: ubuntu-latest
+    needs: [test, build-and-push]
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || 
+        (github.event_name == 'workflow_dispatch' && inputs.deploy_infra)
+    environment: 
+      name: ${{ github.event.inputs.environment || 'dev' }}
+    defaults:
+      run:
+        working-directory: ./terraform
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Terraform Init
+      run: |
+        ENV=${{ github.event.inputs.environment || 'dev' }}
+        terraform init -backend-config="resource_group_name=tfstate" \
+          -backend-config="storage_account_name=${{ secrets.TF_STATE_SA }}" \
+          -backend-config="container_name=tfstate" \
+          -backend-config="key=$ENV.tfstate"
+
+    - name: Terraform Apply
+      run: |
+        ENV=${{ github.event.inputs.environment || 'dev' }}
+        terraform apply -var-file=environments/$ENV.tfvars -auto-approve
+
+    - name: Output URLs
+      run: |
+        echo "Patient Service URL: $(terraform output -raw patient_service_url)"
+        echo "Appointment Service URL: $(terraform output -raw appointment_service_url)"
+
+  # -------------------
+  # Deploy Apps
+  # -------------------
+  deploy-apps:
+    runs-on: ubuntu-latest
+    needs: [build-and-push, terraform-apply]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    environment: 
+      name: ${{ github.event.inputs.environment || 'dev' }}
+    strategy:
+      matrix:
+        service: [patient, appointment]
+
+    steps:
+    - name: Deploy to Azure Web App
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ format('app-healthcareapp-{0}-{1}', matrix.service, github.event.inputs.environment || 'dev') }}
+        images: ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:latest
+        publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+
