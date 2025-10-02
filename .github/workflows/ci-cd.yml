@@ -42,11 +42,22 @@ jobs:
       id: fmt
       run: terraform fmt -check -recursive terraform/
 
-    - name: Terraform Init
+    - name: Initialize Terraform with Local Backend
       id: init
       run: |
         cd terraform
-        terraform init -input=false
+        
+        # Create a simple backend configuration file
+        cat > backend.tf << EOF
+terraform {
+  backend "local" {
+    path = "terraform.tfstate"
+  }
+}
+EOF
+        
+        # Initialize with local backend
+        terraform init -input=false -reconfigure
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
