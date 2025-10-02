@@ -7,7 +7,7 @@ output "aks_cluster_name" {
 }
 
 output "acr_login_server" {
-  value = azurerm_container_registry.acr.login_server
+  value = var.use_existing_acr ? data.azurerm_container_registry.acr[0].login_server : azurerm_container_registry.acr[0].login_server
 }
 
 output "kube_config" {
