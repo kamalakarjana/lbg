@@ -4,6 +4,12 @@ variable "resource_group_name" {
   default     = "healthcare-app-rg"
 }
 
+variable "acr_resource_group_name" {
+  description = "Name of the resource group where ACR exists"
+  type        = string
+  default     = "healthcare-app-rg"  # Change this to your ACR's actual resource group
+}
+
 variable "location" {
   description = "Azure region"
   type        = string

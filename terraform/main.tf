@@ -11,17 +11,23 @@ resource "azurerm_resource_group" "main" {
 data "azurerm_container_registry" "acr" {
   count               = var.use_existing_acr ? 1 : 0
   name                = var.acr_name
-  resource_group_name = var.resource_group_name
+  resource_group_name = var.acr_resource_group_name
 }
 
 # Create new ACR only if use_existing_acr is false
 resource "azurerm_container_registry" "acr" {
   count               = var.use_existing_acr ? 0 : 1
-  name                = var.acr_name
+  name                = "${var.acr_name}${random_id.acr_suffix[0].hex}"  # Append random suffix for uniqueness
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = "Basic"
   admin_enabled       = true
+}
+
+# Random ID for ACR name suffix (only used when creating new ACR)
+resource "random_id" "acr_suffix" {
+  count       = var.use_existing_acr ? 0 : 1
+  byte_length = 4
 }
 
 # Create AKS Cluster
