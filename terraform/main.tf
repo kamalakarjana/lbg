@@ -52,10 +52,5 @@ resource "azurerm_kubernetes_cluster" "aks" {
   }
 }
 
-# Grant AKS access to ACR
-resource "azurerm_role_assignment" "aks_acr" {
-  principal_id                     = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
-  role_definition_name             = "AcrPull"
-  scope                            = var.use_existing_acr ? data.azurerm_container_registry.acr[0].id : azurerm_container_registry.acr[0].id
-  skip_service_principal_aad_check = true
-}
+# REMOVED: azurerm_role_assignment resource since we manually attached ACR to AKS
+# The ACR attachment is now managed manually via: az aks update --attach-acr
