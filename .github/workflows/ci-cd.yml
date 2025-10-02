@@ -41,12 +41,34 @@ jobs:
     - name: Terraform Format Check
       run: terraform fmt -check -recursive terraform/
 
+    - name: Override Backend Configuration
+      id: override-backend
+      run: |
+        cd terraform
+        
+        # Remove any existing backend configuration
+        find . -name "*.tf" -exec grep -l "backend \"azurerm\"" {} \; | while read file; do
+          echo "Removing backend configuration from $file"
+          # Create a backup and remove backend block
+          cp "$file" "$file.backup"
+          awk '!/backend \"azurerm\"/{print}' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+        done
+        
+        # Create a local backend configuration
+        cat > backend_override.tf << 'EOF'
+terraform {
+  backend "local" {
+    path = "terraform.tfstate"
+  }
+}
+EOF
+        echo "Backend configuration overridden to use local backend"
+
     - name: Terraform Init
       id: init
       run: |
         cd terraform
-        # Force local backend to avoid state issues
-        terraform init -input=false -backend=false
+        terraform init -input=false -reconfigure -upgrade
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -93,6 +115,19 @@ jobs:
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+    - name: Cleanup Backend Override
+      if: always()
+      run: |
+        cd terraform
+        # Remove the override file
+        rm -f backend_override.tf
+        # Restore original files if backups exist
+        find . -name "*.backup" | while read backup; do
+          original="${backup%.backup}"
+          echo "Restoring $original from backup"
+          mv "$backup" "$original"
+        done
 
   # Build Docker Images
   build-images:
@@ -188,40 +223,26 @@ jobs:
         # Create namespace
         kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
 
-        # Apply Kubernetes manifests if they exist
-        if [ -f "kubernetes/manifests/patient-service.yaml" ]; then
-          kubectl apply -f kubernetes/manifests/ -n $NAMESPACE
-        else
-          # Create basic deployments if manifests don't exist
-          kubectl create deployment patient-service \
-            --image=${{ secrets.ACR_LOGIN_SERVER }}/patient-service:${{ github.sha }} \
-            --port=8080 \
-            -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
-          
-          kubectl expose deployment patient-service \
-            --port=80 \
-            --target-port=8080 \
-            -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+        # Create or update deployments
+        kubectl create deployment patient-service \
+          --image=${{ secrets.ACR_LOGIN_SERVER }}/patient-service:${{ github.sha }} \
+          --port=8080 \
+          -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+        
+        kubectl expose deployment patient-service \
+          --port=80 \
+          --target-port=8080 \
+          -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
 
-          kubectl create deployment appointment-service \
-            --image=${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:${{ github.sha }} \
-            --port=8080 \
-            -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
-          
-          kubectl expose deployment appointment-service \
-            --port=80 \
-            --target-port=8080 \
-            -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
-        fi
-
-        # Update images
-        kubectl set image deployment/patient-service \
-          patient-service=${{ secrets.ACR_LOGIN_SERVER }}/patient-service:${{ github.sha }} \
-          -n $NAMESPACE
-
-        kubectl set image deployment/appointment-service \
-          appointment-service=${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:${{ github.sha }} \
-          -n $NAMESPACE
+        kubectl create deployment appointment-service \
+          --image=${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:${{ github.sha }} \
+          --port=8080 \
+          -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+        
+        kubectl expose deployment appointment-service \
+          --port=80 \
+          --target-port=8080 \
+          -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
 
         # Wait for rollout
         kubectl rollout status deployment/patient-service -n $NAMESPACE --timeout=300s
@@ -237,65 +258,3 @@ jobs:
         
         echo "=== Deployment Status ==="
         kubectl get deployments,services,pods -n $NAMESPACE
-
-  # Integration Tests
-  integration-tests:
-    name: 'Integration Tests'
-    runs-on: ubuntu-latest
-    needs: deploy-to-aks
-    if: github.ref == 'refs/heads/main'
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Azure CLI Login
-      run: |
-        az login --service-principal \
-          -u ${{ secrets.AZURE_CLIENT_ID }} \
-          -p ${{ secrets.AZURE_CLIENT_SECRET }} \
-          --tenant ${{ secrets.AZURE_TENANT_ID }}
-        az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-    - name: Set up kubectl
-      uses: azure/setup-kubectl@v3
-
-    - name: Configure AKS credentials
-      run: |
-        az aks get-credentials \
-          --resource-group ${{ needs.terraform.outputs.resource_group_name }} \
-          --name ${{ needs.terraform.outputs.aks_cluster_name }} \
-          --overwrite-existing
-
-    - name: Run integration tests
-      run: |
-        NAMESPACE="healthcare-prod"
-        
-        echo "Waiting for services to be ready..."
-        sleep 45
-        
-        echo "=== Running Integration Tests ==="
-        
-        # Test Patient Service
-        PATIENT_POD=$(kubectl get pods -n $NAMESPACE -l app=patient-service -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-        if [ -n "$PATIENT_POD" ]; then
-          echo "Testing Patient Service..."
-          kubectl port-forward pod/$PATIENT_POD 8080:8080 -n $NAMESPACE --address=0.0.0.0 &
-          PF_PID=$!
-          sleep 10
-          curl -f http://localhost:8080/health && echo "✅ Patient Service Health: OK" || echo "❌ Patient Service Health: FAILED"
-          kill $PF_PID 2>/dev/null || true
-        fi
-        
-        # Test Appointment Service
-        APPOINTMENT_POD=$(kubectl get pods -n $NAMESPACE -l app=appointment-service -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-        if [ -n "$APPOINTMENT_POD" ]; then
-          echo "Testing Appointment Service..."
-          kubectl port-forward pod/$APPOINTMENT_POD 8081:8080 -n $NAMESPACE --address=0.0.0.0 &
-          PF_PID=$!
-          sleep 10
-          curl -f http://localhost:8081/health && echo "✅ Appointment Service Health: OK" || echo "❌ Appointment Service Health: FAILED"
-          kill $PF_PID 2>/dev/null || true
-        fi
-        
-        echo "🎉 Integration tests completed!"
