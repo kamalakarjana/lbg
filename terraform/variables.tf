@@ -22,6 +22,12 @@ variable "acr_name" {
   default     = "kamalj2kkkk"
 }
 
+variable "use_existing_acr" {
+  description = "Whether to use existing ACR or create new one"
+  type        = bool
+  default     = true
+}
+
 variable "environment" {
   description = "Environment name"
   type        = string
