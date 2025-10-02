@@ -32,11 +32,13 @@ jobs:
       with:
         terraform_version: '1.5.0'
 
-    - name: Terraform Format
-      id: fmt
+    - name: Fix line endings and format Terraform
       run: |
         cd terraform
-        terraform fmt -check -recursive
+        # Convert Windows line endings to Unix
+        find . -name "*.tf" -exec sed -i 's/\r$//' {} \;
+        # Format Terraform files
+        terraform fmt -recursive
 
     - name: Terraform Init
       id: init

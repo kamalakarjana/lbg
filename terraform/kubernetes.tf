@@ -39,7 +39,7 @@ resource "kubernetes_deployment" "patient_service" {
         container {
           name  = "patient-service"
           image = "${azurerm_container_registry.acr.login_server}/patient-service:latest"
-          
+
           port {
             container_port = 3000
           }
@@ -131,7 +131,7 @@ resource "kubernetes_deployment" "appointment_service" {
         container {
           name  = "appointment-service"
           image = "${azurerm_container_registry.acr.login_server}/appointment-service:latest"
-          
+
           port {
             container_port = 3001
           }
