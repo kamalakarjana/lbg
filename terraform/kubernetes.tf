@@ -1,3 +1,17 @@
+provider "kubernetes" {
+  host                   = azurerm_kubernetes_cluster.aks.kube_config[0].host
+  client_certificate     = base64decode(azurerm_kubernetes_cluster.aks.kube_config[0].client_certificate)
+  client_key             = base64decode(azurerm_kubernetes_cluster.aks.kube_config[0].client_key)
+  cluster_ca_certificate = base64decode(azurerm_kubernetes_cluster.aks.kube_config[0].cluster_ca_certificate)
+}
+
+# Namespace
+resource "kubernetes_namespace" "healthcare" {
+  metadata {
+    name = "healthcare-ns"
+  }
+}
+
 # Patient Service Deployment
 resource "kubernetes_deployment" "patient_service" {
   metadata {
@@ -72,7 +86,28 @@ resource "kubernetes_deployment" "patient_service" {
   wait_for_rollout = false
 }
 
-# Appointment Service Deployment  
+# Patient Service Service
+resource "kubernetes_service" "patient_service" {
+  metadata {
+    name      = "patient-service"
+    namespace = kubernetes_namespace.healthcare.metadata[0].name
+  }
+
+  spec {
+    selector = {
+      app = "patient-service"
+    }
+
+    port {
+      port        = 80
+      target_port = 3000
+    }
+
+    type = "LoadBalancer"
+  }
+}
+
+# Appointment Service Deployment
 resource "kubernetes_deployment" "appointment_service" {
   metadata {
     name      = "appointment-service"
@@ -144,27 +179,6 @@ resource "kubernetes_deployment" "appointment_service" {
 
   # Don't wait for rollout during Terraform apply
   wait_for_rollout = false
-}
-
-# Patient Service Service
-resource "kubernetes_service" "patient_service" {
-  metadata {
-    name      = "patient-service"
-    namespace = kubernetes_namespace.healthcare.metadata[0].name
-  }
-
-  spec {
-    selector = {
-      app = "patient-service"
-    }
-
-    port {
-      port        = 80
-      target_port = 3000
-    }
-
-    type = "LoadBalancer"
-  }
 }
 
 # Appointment Service Service

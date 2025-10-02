@@ -17,7 +17,7 @@ data "azurerm_container_registry" "acr" {
 # Create new ACR only if use_existing_acr is false
 resource "azurerm_container_registry" "acr" {
   count               = var.use_existing_acr ? 0 : 1
-  name                = "${var.acr_name}${random_id.acr_suffix[0].hex}"  # Append random suffix for uniqueness
+  name                = "${var.acr_name}${random_id.acr_suffix[0].hex}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = "Basic"
@@ -52,5 +52,4 @@ resource "azurerm_kubernetes_cluster" "aks" {
   }
 }
 
-# REMOVED: azurerm_role_assignment resource since we manually attached ACR to AKS
-# The ACR attachment is now managed manually via: az aks update --attach-acr
+# ACR role assignment removed - manually configured via: az aks update --attach-acr
