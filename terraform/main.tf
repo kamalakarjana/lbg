@@ -1,81 +1,183 @@
-provider "azurerm" {
-  features {}
-}
+name: Healthcare App CI/CD
 
-resource "random_string" "suffix" {
-  length  = 6
-  special = false
-  upper   = false
-}
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
 
-# Resource Group
-resource "azurerm_resource_group" "main" {
-  name     = "rg-${var.project_name}-${var.environment}-${random_string.suffix.result}"
-  location = var.location
-  tags     = merge(var.tags, { Environment = var.environment })
-}
+env:
+  AZURE_CONTAINER_REGISTRY: 'kamalj2kkkk.azurecr.io'
+  CONTAINER_REGISTRY_USERNAME: ${{ secrets.ACR_USERNAME }}
+  CONTAINER_REGISTRY_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+  RESOURCE_GROUP: 'healthcare-app-rg'
+  AKS_CLUSTER_NAME: 'healthcare-aks-cluster'
+  AKS_NAMESPACE: 'healthcare-ns'
 
-# Container Registry
-resource "azurerm_container_registry" "acr" {
-  name                = "acr${var.project_name}${var.environment}${random_string.suffix.result}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  sku                 = var.acr_sku
-  admin_enabled       = true
-  tags                = merge(var.tags, { Environment = var.environment })
-}
+jobs:
+  # Terraform Infrastructure as Code
+  terraform:
+    name: 'Terraform'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-# Virtual Network
-resource "azurerm_virtual_network" "main" {
-  name                = "vnet-${var.project_name}-${var.environment}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  address_space       = ["10.0.0.0/16"]
-  tags                = merge(var.tags, { Environment = var.environment })
-}
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-# Subnet for AKS
-resource "azurerm_subnet" "aks" {
-  name                 = "snet-aks-${var.project_name}-${var.environment}"
-  resource_group_name  = azurerm_resource_group.main.name
-  virtual_network_name = azurerm_virtual_network.main.name
-  address_prefixes     = ["10.0.1.0/24"]
-}
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: '1.5.0'
 
-# AKS Cluster
-resource "azurerm_kubernetes_cluster" "main" {
-  name                = "aks-${var.project_name}-${var.environment}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  dns_prefix          = "aks-${var.project_name}-${var.environment}"
-  kubernetes_version  = "1.33.3"
+    - name: Terraform Format
+      id: fmt
+      run: |
+        cd terraform
+        terraform fmt -check -recursive
 
-  default_node_pool {
-    name           = "default"
-    node_count     = var.aks_node_count
-    vm_size        = var.aks_vm_size
-    vnet_subnet_id = azurerm_subnet.aks.id
-  }
+    - name: Terraform Init
+      id: init
+      run: |
+        cd terraform
+        terraform init
 
-  identity {
-    type = "SystemAssigned"
-  }
+    - name: Terraform Validate
+      id: validate
+      run: |
+        cd terraform
+        terraform validate
 
-  network_profile {
-    network_plugin = "azure"
-    network_policy = "azure"
-    service_cidr   = "10.2.0.0/16" # Avoids overlap with 10.0.1.0/24
-    dns_service_ip = "10.2.0.10"   # Must be inside service_cidr
-    #    docker_bridge_cidr = "172.17.0.1/16"
-  }
+    - name: Terraform Plan
+      id: plan
+      if: github.event_name == 'pull_request'
+      run: |
+        cd terraform
+        terraform plan -var="environment=dev" -no-color
 
-  tags = merge(var.tags, { Environment = var.environment })
-}
+    - name: Terraform Apply
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        cd terraform
+        terraform apply -auto-approve -var="environment=prod"
 
-# Role assignment for AKS to pull from ACR
-resource "azurerm_role_assignment" "aks_acr" {
-  principal_id                     = azurerm_kubernetes_cluster.main.kubelet_identity[0].object_id
-  role_definition_name             = "AcrPull"
-  scope                            = azurerm_container_registry.acr.id
-  skip_service_principal_aad_check = true
-}
+  # Build and Push Docker Images
+  build-and-push:
+    name: 'Build and Push Docker Images'
+    runs-on: ubuntu-latest
+    needs: terraform
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+    - name: Login to Azure Container Registry
+      run: |
+        az acr login --name kamalj2kkkk
+
+    - name: Build and Push Patient Service
+      run: |
+        cd microservices/patient-service
+        docker build -t ${{ env.AZURE_CONTAINER_REGISTRY }}/patient-service:latest .
+        docker push ${{ env.AZURE_CONTAINER_REGISTRY }}/patient-service:latest
+
+    - name: Build and Push Appointment Service
+      run: |
+        cd microservices/appointment-service
+        docker build -t ${{ env.AZURE_CONTAINER_REGISTRY }}/appointment-service:latest .
+        docker push ${{ env.AZURE_CONTAINER_REGISTRY }}/appointment-service:latest
+
+  # Deploy to AKS
+  deploy-to-aks:
+    name: 'Deploy to AKS'
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+    - name: Get AKS credentials
+      run: |
+        az aks get-credentials \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --name ${{ env.AKS_CLUSTER_NAME }} \
+          --overwrite-existing
+
+    - name: Deploy to AKS
+      run: |
+        # Update deployment images
+        kubectl set image deployment/patient-service \
+          patient-service=${{ env.AZURE_CONTAINER_REGISTRY }}/patient-service:latest \
+          -n ${{ env.AKS_NAMESPACE }}
+        
+        kubectl set image deployment/appointment-service \
+          appointment-service=${{ env.AZURE_CONTAINER_REGISTRY }}/appointment-service:latest \
+          -n ${{ env.AKS_NAMESPACE }}
+        
+        # Wait for rollout to complete
+        kubectl rollout status deployment/patient-service -n ${{ env.AKS_NAMESPACE }}
+        kubectl rollout status deployment/appointment-service -n ${{ env.AKS_NAMESPACE }}
+
+    - name: Verify deployment
+      run: |
+        kubectl get pods -n ${{ env.AKS_NAMESPACE }}
+        kubectl get services -n ${{ env.AKS_NAMESPACE }}
+
+    - name: Test services
+      run: |
+        # Wait for services to get external IPs
+        echo "Waiting for LoadBalancer IPs..."
+        sleep 30
+        
+        # Get service URLs
+        PATIENT_IP=$(kubectl get service patient-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        APPOINTMENT_IP=$(kubectl get service appointment-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        
+        echo "Patient Service URL: http://$PATIENT_IP"
+        echo "Appointment Service URL: http://$APPOINTMENT_IP"
+        
+        # Test health endpoints (with retries)
+        echo "Testing Patient Service..."
+        for i in {1..10}; do
+          if curl -f http://$PATIENT_IP/health; then
+            echo "Patient service is healthy!"
+            break
+          else
+            echo "Attempt $i: Patient service not ready, waiting..."
+            sleep 10
+          fi
+        done
+        
+        echo "Testing Appointment Service..."
+        for i in {1..10}; do
+          if curl -f http://$APPOINTMENT_IP/health; then
+            echo "Appointment service is healthy!"
+            break
+          else
+            echo "Attempt $i: Appointment service not ready, waiting..."
+            sleep 10
+          fi
+        done
