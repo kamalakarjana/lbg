@@ -125,13 +125,13 @@ jobs:
 
     - name: Build and Push Patient Service
       run: |
-        cd microservices/patient-service
+        cd src/patient-service
         docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/patient-service:latest .
         docker push ${{ secrets.ACR_LOGIN_SERVER }}/patient-service:latest
 
     - name: Build and Push Appointment Service
       run: |
-        cd microservices/appointment-service
+        cd src/appointment-service
         docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:latest .
         docker push ${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:latest
 
