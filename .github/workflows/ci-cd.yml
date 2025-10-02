@@ -24,20 +24,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Azure CLI
-      run: |
-        curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-
     - name: Login to Azure
-      run: |
-        az login --service-principal \
-          -u ${{ secrets.AZURE_CLIENT_ID }} \
-          -p ${{ secrets.AZURE_CLIENT_SECRET }} \
-          --tenant ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Set Azure Subscription
-      run: |
-        az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
@@ -55,22 +47,12 @@ jobs:
       run: |
         cd terraform
         terraform init
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     - name: Terraform Validate
       id: validate
       run: |
         cd terraform
         terraform validate
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     - name: Terraform Plan
       id: plan
@@ -78,22 +60,12 @@ jobs:
       run: |
         cd terraform
         terraform plan -var="environment=dev" -no-color
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     - name: Terraform Apply
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
         cd terraform
         terraform apply -auto-approve -var="environment=prod"
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
   # Build and Push Docker Images
   build-and-push:
@@ -106,16 +78,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Azure CLI
-      run: |
-        curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-
     - name: Login to Azure
-      run: |
-        az login --service-principal \
-          -u ${{ secrets.AZURE_CLIENT_ID }} \
-          -p ${{ secrets.AZURE_CLIENT_SECRET }} \
-          --tenant ${{ secrets.AZURE_TENANT_ID }}
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
     - name: Login to Azure Container Registry
       run: |
@@ -124,14 +92,14 @@ jobs:
     - name: Build and Push Patient Service
       run: |
         cd microservices/patient-service
-        docker build -t ${{ env.AZURE_CONTAINER_REGISTRY }}/patient-service:latest .
-        docker push ${{ env.AZURE_CONTAINER_REGISTRY }}/patient-service:latest
+        docker build -t $AZURE_CONTAINER_REGISTRY/patient-service:latest .
+        docker push $AZURE_CONTAINER_REGISTRY/patient-service:latest
 
     - name: Build and Push Appointment Service
       run: |
         cd microservices/appointment-service
-        docker build -t ${{ env.AZURE_CONTAINER_REGISTRY }}/appointment-service:latest .
-        docker push ${{ env.AZURE_CONTAINER_REGISTRY }}/appointment-service:latest
+        docker build -t $AZURE_CONTAINER_REGISTRY/appointment-service:latest .
+        docker push $AZURE_CONTAINER_REGISTRY/appointment-service:latest
 
   # Deploy to AKS
   deploy-to-aks:
@@ -144,47 +112,39 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Azure CLI
-      run: |
-        curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-
     - name: Login to Azure
-      run: |
-        az login --service-principal \
-          -u ${{ secrets.AZURE_CLIENT_ID }} \
-          -p ${{ secrets.AZURE_CLIENT_SECRET }} \
-          --tenant ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Set Azure Subscription
-      run: |
-        az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
     - name: Get AKS credentials
       run: |
         az aks get-credentials \
-          --resource-group ${{ env.RESOURCE_GROUP }} \
-          --name ${{ env.AKS_CLUSTER_NAME }} \
+          --resource-group $RESOURCE_GROUP \
+          --name $AKS_CLUSTER_NAME \
           --overwrite-existing
 
     - name: Deploy to AKS
       run: |
         # Update deployment images
         kubectl set image deployment/patient-service \
-          patient-service=${{ env.AZURE_CONTAINER_REGISTRY }}/patient-service:latest \
-          -n ${{ env.AKS_NAMESPACE }}
+          patient-service=$AZURE_CONTAINER_REGISTRY/patient-service:latest \
+          -n $AKS_NAMESPACE
         
         kubectl set image deployment/appointment-service \
-          appointment-service=${{ env.AZURE_CONTAINER_REGISTRY }}/appointment-service:latest \
-          -n ${{ env.AKS_NAMESPACE }}
+          appointment-service=$AZURE_CONTAINER_REGISTRY/appointment-service:latest \
+          -n $AKS_NAMESPACE
         
         # Wait for rollout to complete
-        kubectl rollout status deployment/patient-service -n ${{ env.AKS_NAMESPACE }}
-        kubectl rollout status deployment/appointment-service -n ${{ env.AKS_NAMESPACE }}
+        kubectl rollout status deployment/patient-service -n $AKS_NAMESPACE
+        kubectl rollout status deployment/appointment-service -n $AKS_NAMESPACE
 
     - name: Verify deployment
       run: |
-        kubectl get pods -n ${{ env.AKS_NAMESPACE }}
-        kubectl get services -n ${{ env.AKS_NAMESPACE }}
+        kubectl get pods -n $AKS_NAMESPACE
+        kubectl get services -n $AKS_NAMESPACE
 
     - name: Test services
       run: |
@@ -193,8 +153,8 @@ jobs:
         sleep 30
         
         # Get service URLs
-        PATIENT_IP=$(kubectl get service patient-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-        APPOINTMENT_IP=$(kubectl get service appointment-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        PATIENT_IP=$(kubectl get service patient-service -n $AKS_NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        APPOINTMENT_IP=$(kubectl get service appointment-service -n $AKS_NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
         
         echo "Patient Service URL: http://$PATIENT_IP"
         echo "Appointment Service URL: http://$APPOINTMENT_IP"
