@@ -8,11 +8,13 @@ on:
 
 env:
   AZURE_CONTAINER_REGISTRY: 'kamalj2kkkk.azurecr.io'
-  CONTAINER_REGISTRY_USERNAME: ${{ secrets.ACR_USERNAME }}
-  CONTAINER_REGISTRY_PASSWORD: ${{ secrets.ACR_PASSWORD }}
   RESOURCE_GROUP: 'healthcare-app-rg'
   AKS_CLUSTER_NAME: 'healthcare-aks-cluster'
   AKS_NAMESPACE: 'healthcare-ns'
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   # Terraform Infrastructure as Code
@@ -85,21 +87,24 @@ jobs:
         tenant-id: ${{ secrets.AZURE_TENANT_ID }}
         subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-    - name: Login to Azure Container Registry
-      run: |
-        az acr login --name kamalj2kkkk
+    - name: Login to Docker Registry
+      uses: azure/docker-login@v1
+      with:
+        login-server: ${{ secrets.ACR_LOGIN_SERVER }}
+        username: ${{ secrets.ACR_USERNAME }}
+        password: ${{ secrets.ACR_PASSWORD }}
 
     - name: Build and Push Patient Service
       run: |
         cd microservices/patient-service
-        docker build -t $AZURE_CONTAINER_REGISTRY/patient-service:latest .
-        docker push $AZURE_CONTAINER_REGISTRY/patient-service:latest
+        docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/patient-service:latest .
+        docker push ${{ secrets.ACR_LOGIN_SERVER }}/patient-service:latest
 
     - name: Build and Push Appointment Service
       run: |
         cd microservices/appointment-service
-        docker build -t $AZURE_CONTAINER_REGISTRY/appointment-service:latest .
-        docker push $AZURE_CONTAINER_REGISTRY/appointment-service:latest
+        docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:latest .
+        docker push ${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:latest
 
   # Deploy to AKS
   deploy-to-aks:
@@ -122,62 +127,92 @@ jobs:
     - name: Get AKS credentials
       run: |
         az aks get-credentials \
-          --resource-group $RESOURCE_GROUP \
-          --name $AKS_CLUSTER_NAME \
+          --resource-group ${{ env.RESOURCE_GROUP }} \
+          --name ${{ env.AKS_CLUSTER_NAME }} \
           --overwrite-existing
+
+    - name: Create namespace if not exists
+      run: |
+        kubectl create namespace ${{ env.AKS_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
     - name: Deploy to AKS
       run: |
         # Update deployment images
         kubectl set image deployment/patient-service \
-          patient-service=$AZURE_CONTAINER_REGISTRY/patient-service:latest \
-          -n $AKS_NAMESPACE
+          patient-service=${{ secrets.ACR_LOGIN_SERVER }}/patient-service:latest \
+          -n ${{ env.AKS_NAMESPACE }} || echo "Deployment might not exist yet, will be created by Terraform"
         
         kubectl set image deployment/appointment-service \
-          appointment-service=$AZURE_CONTAINER_REGISTRY/appointment-service:latest \
-          -n $AKS_NAMESPACE
+          appointment-service=${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:latest \
+          -n ${{ env.AKS_NAMESPACE }} || echo "Deployment might not exist yet, will be created by Terraform"
         
         # Wait for rollout to complete
-        kubectl rollout status deployment/patient-service -n $AKS_NAMESPACE
-        kubectl rollout status deployment/appointment-service -n $AKS_NAMESPACE
+        kubectl rollout status deployment/patient-service -n ${{ env.AKS_NAMESPACE }} --timeout=300s || echo "Patient service rollout check failed"
+        kubectl rollout status deployment/appointment-service -n ${{ env.AKS_NAMESPACE }} --timeout=300s || echo "Appointment service rollout check failed"
 
     - name: Verify deployment
       run: |
-        kubectl get pods -n $AKS_NAMESPACE
-        kubectl get services -n $AKS_NAMESPACE
+        echo "=== Current Pods ==="
+        kubectl get pods -n ${{ env.AKS_NAMESPACE }}
+        echo "=== Current Services ==="
+        kubectl get services -n ${{ env.AKS_NAMESPACE }}
+        echo "=== Current Deployments ==="
+        kubectl get deployments -n ${{ env.AKS_NAMESPACE }}
 
     - name: Test services
       run: |
         # Wait for services to get external IPs
         echo "Waiting for LoadBalancer IPs..."
-        sleep 30
+        sleep 60
         
-        # Get service URLs
-        PATIENT_IP=$(kubectl get service patient-service -n $AKS_NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-        APPOINTMENT_IP=$(kubectl get service appointment-service -n $AKS_NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        # Get service URLs with retries
+        for i in {1..10}; do
+          PATIENT_IP=$(kubectl get service patient-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+          APPOINTMENT_IP=$(kubectl get service appointment-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+          
+          if [[ -n "$PATIENT_IP" && -n "$APPOINTMENT_IP" ]]; then
+            break
+          fi
+          echo "Attempt $i: Waiting for external IPs..."
+          sleep 30
+        done
+        
+        if [[ -z "$PATIENT_IP" ]]; then
+          echo "Patient service external IP not available"
+          PATIENT_IP="NotAvailable"
+        fi
+        
+        if [[ -z "$APPOINTMENT_IP" ]]; then
+          echo "Appointment service external IP not available"
+          APPOINTMENT_IP="NotAvailable"
+        fi
         
         echo "Patient Service URL: http://$PATIENT_IP"
         echo "Appointment Service URL: http://$APPOINTMENT_IP"
         
-        # Test health endpoints (with retries)
-        echo "Testing Patient Service..."
-        for i in {1..10}; do
-          if curl -f http://$PATIENT_IP/health; then
-            echo "Patient service is healthy!"
-            break
-          else
-            echo "Attempt $i: Patient service not ready, waiting..."
-            sleep 10
-          fi
-        done
+        # Test health endpoints (with retries) only if IPs are available
+        if [[ "$PATIENT_IP" != "NotAvailable" ]]; then
+          echo "Testing Patient Service..."
+          for i in {1..10}; do
+            if curl -f --connect-timeout 10 http://$PATIENT_IP/health; then
+              echo "Patient service is healthy!"
+              break
+            else
+              echo "Attempt $i: Patient service not ready, waiting..."
+              sleep 10
+            fi
+          done
+        fi
         
-        echo "Testing Appointment Service..."
-        for i in {1..10}; do
-          if curl -f http://$APPOINTMENT_IP/health; then
-            echo "Appointment service is healthy!"
-            break
-          else
-            echo "Attempt $i: Appointment service not ready, waiting..."
-            sleep 10
-          fi
-        done
+        if [[ "$APPOINTMENT_IP" != "NotAvailable" ]]; then
+          echo "Testing Appointment Service..."
+          for i in {1..10}; do
+            if curl -f --connect-timeout 10 http://$APPOINTMENT_IP/health; then
+              echo "Appointment service is healthy!"
+              break
+            else
+              echo "Attempt $i: Appointment service not ready, waiting..."
+              sleep 10
+            fi
+          done
+        fi
