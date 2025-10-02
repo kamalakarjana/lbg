@@ -39,7 +39,8 @@ resource "kubernetes_deployment" "patient_service" {
         container {
           name  = "patient-service"
           image = "${azurerm_container_registry.acr.login_server}/patient-service:latest"
-          ports {
+          
+          port {
             container_port = 3000
           }
 
@@ -57,6 +58,24 @@ resource "kubernetes_deployment" "patient_service" {
               cpu    = "200m"
               memory = "256Mi"
             }
+          }
+
+          liveness_probe {
+            http_get {
+              path = "/health"
+              port = 3000
+            }
+            initial_delay_seconds = 30
+            period_seconds        = 10
+          }
+
+          readiness_probe {
+            http_get {
+              path = "/health"
+              port = 3000
+            }
+            initial_delay_seconds = 5
+            period_seconds        = 10
           }
         }
       }
@@ -112,7 +131,8 @@ resource "kubernetes_deployment" "appointment_service" {
         container {
           name  = "appointment-service"
           image = "${azurerm_container_registry.acr.login_server}/appointment-service:latest"
-          ports {
+          
+          port {
             container_port = 3001
           }
 
@@ -130,6 +150,24 @@ resource "kubernetes_deployment" "appointment_service" {
               cpu    = "200m"
               memory = "256Mi"
             }
+          }
+
+          liveness_probe {
+            http_get {
+              path = "/health"
+              port = 3001
+            }
+            initial_delay_seconds = 30
+            period_seconds        = 10
+          }
+
+          readiness_probe {
+            http_get {
+              path = "/health"
+              port = 3001
+            }
+            initial_delay_seconds = 5
+            period_seconds        = 10
           }
         }
       }
