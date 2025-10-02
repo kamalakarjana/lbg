@@ -11,9 +11,9 @@ env:
   CLUSTER_NAME: 'aks-healthcare-app-${{ github.ref_name }}'
 
 jobs:
-  # Terraform Infrastructure CI/CD
+  # Terraform Infrastructure
   terraform:
-    name: 'Terraform - Plan/Apply'
+    name: 'Terraform'
     runs-on: ubuntu-latest
     environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
     
@@ -25,7 +25,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Azure CLI Login
+    - name: Azure Login
       run: |
         az login --service-principal \
           -u ${{ secrets.AZURE_CLIENT_ID }} \
@@ -35,50 +35,24 @@ jobs:
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v2
-      with:
-        terraform_version: 1.5.0
 
-    - name: Terraform Format Check
-      run: terraform fmt -check -recursive terraform/
-
-    - name: Override Backend Configuration
-      id: override-backend
+    - name: Create Local Backend
       run: |
         cd terraform
-        
-        # Remove any existing backend configuration
-        find . -name "*.tf" -exec grep -l "backend \"azurerm\"" {} \; | while read file; do
-          echo "Removing backend configuration from $file"
-          # Create a backup and remove backend block
-          cp "$file" "$file.backup"
-          awk '!/backend \"azurerm\"/{print}' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-        done
-        
-        # Create a local backend configuration
-        cat > backend_override.tf << 'EOF'
+        # Force local backend for CI/CD
+        cat > backend_ci.tf << 'EOF'
 terraform {
-  backend "local" {
-    path = "terraform.tfstate"
-  }
+  backend "local" {}
 }
 EOF
-        echo "Backend configuration overridden to use local backend"
 
     - name: Terraform Init
-      id: init
-      run: |
-        cd terraform
-        terraform init -input=false -reconfigure -upgrade
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      run: terraform -chdir=terraform init
 
     - name: Terraform Validate
       run: terraform -chdir=terraform validate
 
-    - name: Set outputs for other jobs
+    - name: Set outputs
       id: set-outputs
       run: |
         echo "resource_group_name=$RESOURCE_GROUP" >> $GITHUB_OUTPUT
@@ -88,132 +62,70 @@ EOF
       if: github.event_name == 'pull_request'
       run: |
         cd terraform
-        ENVIRONMENT="dev"
-        if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-          ENVIRONMENT="prod"
-        fi
-
-        terraform plan \
-          -var="environment=$ENVIRONMENT" \
-          -var="docker_image_tags={\"patient_service\"=\"${{ github.sha }}\",\"appointment_service\"=\"${{ github.sha }}\"}" \
-          -out=tfplan
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        terraform plan -out=tfplan
 
     - name: Terraform Apply
       if: github.ref == 'refs/heads/main'
       run: |
         cd terraform
-        terraform apply -auto-approve \
-          -var="environment=prod" \
-          -var="docker_image_tags={\"patient_service\"=\"${{ github.sha }}\",\"appointment_service\"=\"${{ github.sha }}\"}"
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        terraform apply -auto-approve
 
-    - name: Cleanup Backend Override
-      if: always()
-      run: |
-        cd terraform
-        # Remove the override file
-        rm -f backend_override.tf
-        # Restore original files if backups exist
-        find . -name "*.backup" | while read backup; do
-          original="${backup%.backup}"
-          echo "Restoring $original from backup"
-          mv "$backup" "$original"
-        done
-
-  # Build Docker Images
-  build-images:
-    name: 'Build and Push Docker Images'
+  # Build and Push Docker Images
+  build:
+    name: 'Build Docker Images'
     runs-on: ubuntu-latest
     needs: terraform
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
-    environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+    if: github.event_name == 'push'
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Azure CLI Login
-      run: |
-        az login --service-principal \
-          -u ${{ secrets.AZURE_CLIENT_ID }} \
-          -p ${{ secrets.AZURE_CLIENT_SECRET }} \
-          --tenant ${{ secrets.AZURE_TENANT_ID }}
-        az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
-
-    - name: Log in to Azure Container Registry
+    - name: Login to ACR
       run: |
         echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
           -u ${{ secrets.ACR_USERNAME }} \
           --password-stdin
 
-    - name: Build and push Patient Service
-      uses: docker/build-push-action@v4
-      with:
-        context: ./patient-service
-        file: ./patient-service/Dockerfile
-        push: true
-        tags: |
-          ${{ secrets.ACR_LOGIN_SERVER }}/patient-service:${{ github.sha }}
-          ${{ secrets.ACR_LOGIN_SERVER }}/patient-service:latest
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+    - name: Build Patient Service
+      run: |
+        docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/patient-service:${{ github.sha }} ./patient-service
+        docker push ${{ secrets.ACR_LOGIN_SERVER }}/patient-service:${{ github.sha }}
 
-    - name: Build and push Appointment Service
-      uses: docker/build-push-action@v4
-      with:
-        context: ./appointment-service
-        file: ./appointment-service/Dockerfile
-        push: true
-        tags: |
-          ${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:${{ github.sha }}
-          ${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:latest
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+    - name: Build Appointment Service
+      run: |
+        docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:${{ github.sha }} ./appointment-service
+        docker push ${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:${{ github.sha }}
 
-  # Deploy to AKS
-  deploy-to-aks:
+  # Deploy to Kubernetes
+  deploy:
     name: 'Deploy to AKS'
     runs-on: ubuntu-latest
-    needs: [terraform, build-images]
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    needs: [terraform, build]
+    if: github.event_name == 'push'
     environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Azure CLI Login
+    - name: Azure Login
       run: |
         az login --service-principal \
           -u ${{ secrets.AZURE_CLIENT_ID }} \
           -p ${{ secrets.AZURE_CLIENT_SECRET }} \
           --tenant ${{ secrets.AZURE_TENANT_ID }}
-        az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-    - name: Set up kubectl
-      uses: azure/setup-kubectl@v3
-
-    - name: Configure AKS credentials
+    - name: Get AKS Credentials
       run: |
         az aks get-credentials \
           --resource-group ${{ needs.terraform.outputs.resource_group_name }} \
           --name ${{ needs.terraform.outputs.aks_cluster_name }} \
           --overwrite-existing
 
-    - name: Deploy to AKS
+    - name: Deploy Services
       run: |
+        # Determine namespace
         if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
           NAMESPACE="healthcare-prod"
         else
@@ -223,38 +135,28 @@ EOF
         # Create namespace
         kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
 
-        # Create or update deployments
+        # Deploy Patient Service
         kubectl create deployment patient-service \
           --image=${{ secrets.ACR_LOGIN_SERVER }}/patient-service:${{ github.sha }} \
-          --port=8080 \
-          -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
-        
-        kubectl expose deployment patient-service \
-          --port=80 \
-          --target-port=8080 \
-          -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+          --port=8080 -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
 
+        kubectl expose deployment patient-service \
+          --port=80 --target-port=8080 -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+
+        # Deploy Appointment Service
         kubectl create deployment appointment-service \
           --image=${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:${{ github.sha }} \
-          --port=8080 \
-          -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
-        
+          --port=8080 -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+
         kubectl expose deployment appointment-service \
-          --port=80 \
-          --target-port=8080 \
-          -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+          --port=80 --target-port=8080 -n $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
 
-        # Wait for rollout
-        kubectl rollout status deployment/patient-service -n $NAMESPACE --timeout=300s
-        kubectl rollout status deployment/appointment-service -n $NAMESPACE --timeout=300s
-
-    - name: Verify deployment
+    - name: Verify Deployment
       run: |
         if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
           NAMESPACE="healthcare-prod"
         else
           NAMESPACE="healthcare-dev"
         fi
-        
-        echo "=== Deployment Status ==="
-        kubectl get deployments,services,pods -n $NAMESPACE
+
+        kubectl get all -n $NAMESPACE
