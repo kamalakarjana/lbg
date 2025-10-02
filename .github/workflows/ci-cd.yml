@@ -24,6 +24,21 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Install Azure CLI
+      run: |
+        curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+    - name: Login to Azure
+      run: |
+        az login --service-principal \
+          -u ${{ secrets.AZURE_CLIENT_ID }} \
+          -p ${{ secrets.AZURE_CLIENT_SECRET }} \
+          --tenant ${{ secrets.AZURE_TENANT_ID }}
+
+    - name: Set Azure Subscription
+      run: |
+        az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:
@@ -40,12 +55,22 @@ jobs:
       run: |
         cd terraform
         terraform init
+      env:
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     - name: Terraform Validate
       id: validate
       run: |
         cd terraform
         terraform validate
+      env:
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     - name: Terraform Plan
       id: plan
@@ -81,12 +106,20 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Install Azure CLI
+      run: |
+        curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+    - name: Login to Azure
+      run: |
+        az login --service-principal \
+          -u ${{ secrets.AZURE_CLIENT_ID }} \
+          -p ${{ secrets.AZURE_CLIENT_SECRET }} \
+          --tenant ${{ secrets.AZURE_TENANT_ID }}
+
     - name: Login to Azure Container Registry
-      uses: azure/docker-login@v1
-      with:
-        login-server: ${{ env.AZURE_CONTAINER_REGISTRY }}
-        username: ${{ env.CONTAINER_REGISTRY_USERNAME }}
-        password: ${{ env.CONTAINER_REGISTRY_PASSWORD }}
+      run: |
+        az acr login --name kamalj2kkkk
 
     - name: Build and Push Patient Service
       run: |
@@ -122,6 +155,10 @@ jobs:
           -p ${{ secrets.AZURE_CLIENT_SECRET }} \
           --tenant ${{ secrets.AZURE_TENANT_ID }}
 
+    - name: Set Azure Subscription
+      run: |
+        az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
     - name: Get AKS credentials
       run: |
         az aks get-credentials \
@@ -151,6 +188,10 @@ jobs:
 
     - name: Test services
       run: |
+        # Wait for services to get external IPs
+        echo "Waiting for LoadBalancer IPs..."
+        sleep 30
+        
         # Get service URLs
         PATIENT_IP=$(kubectl get service patient-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
         APPOINTMENT_IP=$(kubectl get service appointment-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
