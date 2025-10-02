@@ -7,8 +7,10 @@ on:
     branches: [ main ]
 
 env:
+  AZURE_CONTAINER_REGISTRY: 'acrhealthcareapp${{ github.run_number }}'
   RESOURCE_GROUP: 'rg-healthcare-app-${{ github.ref_name }}'
   CLUSTER_NAME: 'aks-healthcare-app-${{ github.ref_name }}'
+  CLUSTER_RESOURCE_GROUP: 'rg-aks-healthcare-app-${{ github.ref_name }}'
 
 jobs:
   # Terraform Infrastructure CI/CD
@@ -25,13 +27,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Azure CLI Login
-      run: |
-        az login --service-principal \
-          -u ${{ secrets.AZURE_CLIENT_ID }} \
-          -p ${{ secrets.AZURE_CLIENT_SECRET }} \
-          --tenant ${{ secrets.AZURE_TENANT_ID }}
-        az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v2
@@ -42,11 +43,18 @@ jobs:
       id: fmt
       run: terraform fmt -check -recursive terraform/
 
+    - name: Clean Terraform directory
+      id: clean
+      run: |
+        cd terraform
+        rm -rf .terraform
+        rm -f .terraform.lock.hcl
+
     - name: Terraform Init
       id: init
       run: |
         cd terraform
-        terraform init -input=false
+        terraform init -reconfigure -migrate-state -input=false
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -74,7 +82,7 @@ jobs:
         fi
 
         terraform plan \
-          -var="environment=$ENVIRONMENT" \
+          -var="environment=${ENVIRONMENT}" \
           -var="docker_image_tags={\"patient_service\"=\"${{ github.sha }}\",\"appointment_service\"=\"${{ github.sha }}\"}" \
           -out=tfplan
       env:
@@ -88,14 +96,14 @@ jobs:
       uses: actions/github-script@v6
       with:
         script: |
-          const output = `#### Terraform Format and Style ⚙️ \`${{ steps.fmt.outputs.exitcode }}\`
-          #### Terraform Initialization ⚡ \`${{ steps.init.outputs.exitcode }}\`
-          #### Terraform Validation 🤖 \`${{ steps.validate.outputs.exitcode }}\`
-          #### Terraform Plan 📋 \`${{ steps.plan.outputs.exitcode }}\`
+          const output = `#### Terraform Format and Style âš™ï¸\`${{ steps.fmt.outputs.exitcode }}\`
+          #### Terraform Initialization âš¡\`${{ steps.init.outputs.exitcode }}\`
+          #### Terraform Validation ðŸ¤–\`${{ steps.validate.outputs.exitcode }}\`
+          #### Terraform Plan ðŸ“‹\`${{ steps.plan.outputs.exitcode }}\`
 
           <details><summary>Show Plan</summary>
 
-          \`\`\`
+          \`\`\`\n
           ${{ steps.plan.outputs.stdout }}
           \`\`\`
 
@@ -133,22 +141,22 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Azure CLI Login
-      run: |
-        az login --service-principal \
-          -u ${{ secrets.AZURE_CLIENT_ID }} \
-          -p ${{ secrets.AZURE_CLIENT_SECRET }} \
-          --tenant ${{ secrets.AZURE_TENANT_ID }}
-        az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
 
     - name: Log in to Azure Container Registry
-      run: |
-        echo "${{ secrets.ACR_PASSWORD }}" | docker login ${{ secrets.ACR_LOGIN_SERVER }} \
-          -u ${{ secrets.ACR_USERNAME }} \
-          --password-stdin
+      uses: azure/docker-login@v1
+      with:
+        login-server: ${{ secrets.ACR_LOGIN_SERVER }}
+        username: ${{ secrets.ACR_USERNAME }}
+        password: ${{ secrets.ACR_PASSWORD }}
 
     - name: Build and push Patient Service
       uses: docker/build-push-action@v4
@@ -180,11 +188,10 @@ jobs:
         version: 'v1.27.0'
 
     - name: Configure AKS credentials
-      run: |
-        az aks get-credentials \
-          --resource-group ${{ needs.terraform.outputs.resource_group_name }} \
-          --name ${{ needs.terraform.outputs.aks_cluster_name }} \
-          --overwrite-existing
+      uses: azure/aks-set-context@v3
+      with:
+        resource-group: ${{ needs.terraform.outputs.resource_group_name }}
+        cluster-name: ${{ needs.terraform.outputs.aks_cluster_name }}
 
     - name: Deploy to AKS
       run: |
@@ -194,97 +201,6 @@ jobs:
           NAMESPACE="healthcare-dev"
         fi
 
-        # Create namespace if it doesn't exist
-        kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
-
-        # Apply Kubernetes manifests (you need to create these files)
-        if [ -d "kubernetes/manifests" ]; then
-          kubectl apply -f kubernetes/manifests/ -n $NAMESPACE
-        else
-          echo "Kubernetes manifests directory not found, creating basic deployments..."
-          
-          # Create patient-service deployment if it doesn't exist
-          if ! kubectl get deployment patient-service -n $NAMESPACE &>/dev/null; then
-            cat <<EOF | kubectl apply -n $NAMESPACE -f -
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: patient-service
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: patient-service
-  template:
-    metadata:
-      labels:
-        app: patient-service
-    spec:
-      containers:
-      - name: patient-service
-        image: ${{ secrets.ACR_LOGIN_SERVER }}/patient-service:${{ github.sha }}
-        ports:
-        - containerPort: 8080
-        env:
-        - name: PORT
-          value: "8080"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: patient-service
-spec:
-  selector:
-    app: patient-service
-  ports:
-  - port: 80
-    targetPort: 8080
-  type: ClusterIP
-EOF
-          fi
-
-          # Create appointment-service deployment if it doesn't exist
-          if ! kubectl get deployment appointment-service -n $NAMESPACE &>/dev/null; then
-            cat <<EOF | kubectl apply -n $NAMESPACE -f -
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: appointment-service
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: appointment-service
-  template:
-    metadata:
-      labels:
-        app: appointment-service
-    spec:
-      containers:
-      - name: appointment-service
-        image: ${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:${{ github.sha }}
-        ports:
-        - containerPort: 8080
-        env:
-        - name: PORT
-          value: "8080"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: appointment-service
-spec:
-  selector:
-    app: appointment-service
-  ports:
-  - port: 80
-    targetPort: 8080
-  type: ClusterIP
-EOF
-          fi
-        fi
-
-        # Update images
         kubectl set image deployment/patient-service \
           patient-service=${{ secrets.ACR_LOGIN_SERVER }}/patient-service:${{ github.sha }} \
           -n $NAMESPACE
@@ -293,9 +209,13 @@ EOF
           appointment-service=${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:${{ github.sha }} \
           -n $NAMESPACE
 
-        # Wait for rollout
-        kubectl rollout status deployment/patient-service -n $NAMESPACE --timeout=300s
-        kubectl rollout status deployment/appointment-service -n $NAMESPACE --timeout=300s
+        kubectl rollout status deployment/patient-service \
+          -n $NAMESPACE \
+          --timeout=300s
+
+        kubectl rollout status deployment/appointment-service \
+          -n $NAMESPACE \
+          --timeout=300s
 
     - name: Verify deployment
       run: |
@@ -305,14 +225,9 @@ EOF
           NAMESPACE="healthcare-dev"
         fi
         
-        echo "=== Pods ==="
         kubectl get pods -n $NAMESPACE
-        
-        echo "=== Services ==="
         kubectl get services -n $NAMESPACE
-        
-        echo "=== Deployments ==="
-        kubectl get deployments -n $NAMESPACE
+        kubectl get ingress -n $NAMESPACE
 
   # Integration Tests
   integration-tests:
@@ -325,55 +240,33 @@ EOF
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Azure CLI Login
-      run: |
-        az login --service-principal \
-          -u ${{ secrets.AZURE_CLIENT_ID }} \
-          -p ${{ secrets.AZURE_CLIENT_SECRET }} \
-          --tenant ${{ secrets.AZURE_TENANT_ID }}
-        az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
     - name: Set up kubectl
       uses: azure/setup-kubectl@v3
 
     - name: Configure AKS credentials
-      run: |
-        az aks get-credentials \
-          --resource-group ${{ needs.terraform.outputs.resource_group_name }} \
-          --name ${{ needs.terraform.outputs.aks_cluster_name }} \
-          --overwrite-existing
+      uses: azure/aks-set-context@v3
+      with:
+        resource-group: ${{ needs.terraform.outputs.resource_group_name }}
+        cluster-name: ${{ needs.terraform.outputs.aks_cluster_name }}
 
     - name: Run integration tests
       run: |
-        NAMESPACE="healthcare-prod"
+        INGRESS_IP=$(kubectl get ingress healthcare-ingress -n healthcare-prod -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
         
-        # Wait for services to be ready
         echo "Waiting for services to be ready..."
-        sleep 30
+        sleep 60
         
-        # Test using port-forward
-        echo "=== Running Integration Tests ==="
-        
-        # Test Patient Service
-        PATIENT_POD=$(kubectl get pods -n $NAMESPACE -l app=patient-service -o jsonpath='{.items[0].metadata.name}')
-        if [ -n "$PATIENT_POD" ]; then
-          echo "Testing Patient Service..."
-          timeout 30s kubectl port-forward pod/$PATIENT_POD 8080:8080 -n $NAMESPACE &
-          PF_PID=$!
-          sleep 10
-          curl -f http://localhost:8080/health && echo "Patient Service Health: OK" || echo "Patient Service Health: FAILED"
-          kill $PF_PID 2>/dev/null || true
-        fi
-        
-        # Test Appointment Service  
-        APPOINTMENT_POD=$(kubectl get pods -n $NAMESPACE -l app=appointment-service -o jsonpath='{.items[0].metadata.name}')
-        if [ -n "$APPOINTMENT_POD" ]; then
-          echo "Testing Appointment Service..."
-          timeout 30s kubectl port-forward pod/$APPOINTMENT_POD 8081:8080 -n $NAMESPACE &
-          PF_PID=$!
-          sleep 10
-          curl -f http://localhost:8081/health && echo "Appointment Service Health: OK" || echo "Appointment Service Health: FAILED"
-          kill $PF_PID 2>/dev/null || true
-        fi
-        
-        echo "Integration tests completed!"
+        echo "Testing health endpoints..."
+        curl -f http://$INGRESS_IP/patients/health || exit 1
+        curl -f http://$INGRESS_IP/patients || exit 1
+        curl -f http://$INGRESS_IP/appointments/health || exit 1
+        curl -f http://$INGRESS_IP/appointments || exit 1
+
+        echo "All integration tests passed!"
