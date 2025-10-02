@@ -13,12 +13,11 @@ env:
   CLUSTER_RESOURCE_GROUP: 'rg-aks-healthcare-app-${{ github.ref_name }}'
 
 jobs:
-  # Terraform Infrastructure CI/CD
   terraform:
     name: 'Terraform'
     runs-on: ubuntu-latest
     environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-    
+
     outputs:
       resource_group_name: ${{ steps.set-outputs.outputs.resource_group_name }}
       aks_cluster_name: ${{ steps.set-outputs.outputs.aks_cluster_name }}
@@ -36,53 +35,49 @@ jobs:
         
         az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+    - name: Validate Azure Subscription
+      run: |
+        echo "🔎 Listing subscriptions..."
+        az account list -o table
+        echo "🔎 Current subscription:"
+        az account show
+        SUB_ID=$(az account show --query id -o tsv)
+        if [ "$SUB_ID" != "${{ secrets.AZURE_SUBSCRIPTION_ID }}" ]; then
+          echo "❌ Wrong subscription in use: $SUB_ID"
+          exit 1
+        fi
+        echo "✅ Using subscription: $SUB_ID"
+
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v2
       with:
         terraform_version: 1.5.0
 
     - name: Terraform Format
-      id: fmt
       run: terraform fmt -check -recursive terraform/
 
     - name: Clean Terraform directory
-      id: clean
       run: |
         cd terraform
-        rm -rf .terraform
-        rm -f .terraform.lock.hcl
-        rm -f *.tfstate*
-        rm -f *.backup
+        rm -rf .terraform .terraform.lock.hcl *.tfstate* *.backup
 
-    - name: Bypass Corrupted Remote State
-      id: bypass-state
+    - name: Initialize Terraform Backend
       run: |
         cd terraform
-        
-        echo "Creating temporary backend configuration..."
-        
-        # Create a temporary backend configuration that uses local state
-        cat > backend_temp.tf << EOF
-        terraform {
-          backend "local" {
-            path = "terraform.tfstate"
+        echo "⚡ Trying remote backend init..."
+        if ! terraform init -input=false -reconfigure; then
+          echo "⚠️ Remote backend failed. Falling back to local backend..."
+          cat > backend_temp.tf << EOF
+          terraform {
+            backend "local" {
+              path = "terraform.tfstate"
+            }
           }
-        }
-        EOF
-        
-        # Initialize with local backend
-        echo "Initializing with local backend..."
-        terraform init -input=false -migrate-state
-        
-        echo "Local state initialization completed successfully"
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          EOF
+          terraform init -input=false -reconfigure
+        fi
 
     - name: Terraform Validate
-      id: validate
       run: terraform -chdir=terraform validate
 
     - name: Set outputs for other jobs
@@ -92,7 +87,6 @@ jobs:
         echo "aks_cluster_name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
 
     - name: Terraform Plan
-      id: plan
       if: github.event_name == 'pull_request'
       run: |
         cd terraform
@@ -105,36 +99,6 @@ jobs:
           -var="environment=${ENVIRONMENT}" \
           -var="docker_image_tags={\"patient_service\"=\"${{ github.sha }}\",\"appointment_service\"=\"${{ github.sha }}\"}" \
           -out=tfplan
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Terraform Plan Status
-      if: github.event_name == 'pull_request'
-      uses: actions/github-script@v6
-      with:
-        script: |
-          const output = `#### Terraform Format and Style ⚙️\`${{ steps.fmt.outputs.exitcode }}\`
-          #### Terraform Initialization ⚡\`${{ steps.bypass-state.outputs.exitcode }}\`
-          #### Terraform Validation 🤖\`${{ steps.validate.outputs.exitcode }}\`
-          #### Terraform Plan 📋\`${{ steps.plan.outputs.exitcode }}\`
-
-          <details><summary>Show Plan</summary>
-
-          \`\`\`\n
-          ${{ steps.plan.outputs.stdout }}
-          \`\`\`
-
-          </details>`;
-
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: output
-          })
 
     - name: Terraform Apply
       if: github.ref == 'refs/heads/main'
@@ -143,11 +107,6 @@ jobs:
         terraform apply -auto-approve \
           -var="environment=prod" \
           -var="docker_image_tags={\"patient_service\"=\"${{ github.sha }}\",\"appointment_service\"=\"${{ github.sha }}\"}"
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     - name: Cleanup Temporary Files
       if: always()
@@ -155,7 +114,6 @@ jobs:
         cd terraform
         rm -f backend_temp.tf
 
-  # Application CI/CD
   build-and-deploy:
     name: 'Build and Deploy'
     runs-on: ubuntu-latest
@@ -257,7 +215,6 @@ jobs:
         kubectl get services -n $NAMESPACE
         kubectl get ingress -n $NAMESPACE
 
-  # Integration Tests
   integration-tests:
     name: 'Integration Tests'
     runs-on: ubuntu-latest
