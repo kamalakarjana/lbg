@@ -1,8 +1,11 @@
 name: Build and Deploy Application for LBG
 
 on:
-  push:
-    branches: [ hk-LBG ]
+  workflow_run:
+    workflows: ["Terraform Infrastructure for LBG"]
+    types:
+      - completed
+    branches: [hk-LBG]
 
 env:
   ACR_NAME: 'kamalj2kkkk'
@@ -10,6 +13,7 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     steps:
     - name: Checkout code
@@ -25,14 +29,14 @@ jobs:
     - name: Build and push Patient Service
       run: |
         cd src/patient-service
-        docker build -t ${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.sha }} .
-        docker push ${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.sha }}
+        docker build -t ${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.event.workflow_run.head_sha }} .
+        docker push ${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.event.workflow_run.head_sha }}
 
     - name: Build and push Appointment Service
       run: |
         cd src/appointment-service
-        docker build -t ${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.sha }} .
-        docker push ${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.sha }}
+        docker build -t ${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.event.workflow_run.head_sha }} .
+        docker push ${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.event.workflow_run.head_sha }}
 
   deploy-to-dev:
     needs: build-and-push
@@ -54,6 +58,17 @@ jobs:
         resource-group: rg-dev-healthcare-lbg
         cluster-name: aks-dev-healthcare-lbg
 
+    - name: Install NGINX Ingress Controller
+      run: |
+        # Install NGINX Ingress Controller if not exists
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Wait for ingress controller
+        kubectl wait --namespace ingress-nginx \
+          --for=condition=ready pod \
+          --selector=app.kubernetes.io/component=controller \
+          --timeout=90s
+
     - name: Deploy to Dev
       run: |
         # Create namespace
@@ -65,8 +80,8 @@ jobs:
         kubectl apply -f kubernetes/dev/ingress.yaml
         
         # Update images
-        kubectl set image deployment/patient-service patient-service=${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.sha }} -n healthcare-dev
-        kubectl set image deployment/appointment-service appointment-service=${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.sha }} -n healthcare-dev
+        kubectl set image deployment/patient-service patient-service=${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.event.workflow_run.head_sha }} -n healthcare-dev
+        kubectl set image deployment/appointment-service appointment-service=${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.event.workflow_run.head_sha }} -n healthcare-dev
         
         # Wait for rollout
         kubectl rollout status deployment/patient-service -n healthcare-dev --timeout=300s
@@ -94,6 +109,14 @@ jobs:
         resource-group: rg-staging-healthcare-lbg
         cluster-name: aks-staging-healthcare-lbg
 
+    - name: Install NGINX Ingress Controller
+      run: |
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml --dry-run=client -o yaml | kubectl apply -f -
+        kubectl wait --namespace ingress-nginx \
+          --for=condition=ready pod \
+          --selector=app.kubernetes.io/component=controller \
+          --timeout=90s
+
     - name: Deploy to Staging
       run: |
         kubectl create namespace healthcare-staging --dry-run=client -o yaml | kubectl apply -f -
@@ -101,8 +124,8 @@ jobs:
         kubectl apply -f kubernetes/base/appointment-service.yaml
         kubectl apply -f kubernetes/staging/ingress.yaml
         
-        kubectl set image deployment/patient-service patient-service=${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.sha }} -n healthcare-staging
-        kubectl set image deployment/appointment-service appointment-service=${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.sha }} -n healthcare-staging
+        kubectl set image deployment/patient-service patient-service=${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.event.workflow_run.head_sha }} -n healthcare-staging
+        kubectl set image deployment/appointment-service appointment-service=${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.event.workflow_run.head_sha }} -n healthcare-staging
         
         kubectl rollout status deployment/patient-service -n healthcare-staging --timeout=300s
         kubectl rollout status deployment/appointment-service -n healthcare-staging --timeout=300s
@@ -129,6 +152,14 @@ jobs:
         resource-group: rg-prod-healthcare-lbg
         cluster-name: aks-prod-healthcare-lbg
 
+    - name: Install NGINX Ingress Controller
+      run: |
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml --dry-run=client -o yaml | kubectl apply -f -
+        kubectl wait --namespace ingress-nginx \
+          --for=condition=ready pod \
+          --selector=app.kubernetes.io/component=controller \
+          --timeout=90s
+
     - name: Deploy to Production
       run: |
         kubectl create namespace healthcare-prod --dry-run=client -o yaml | kubectl apply -f -
@@ -136,8 +167,8 @@ jobs:
         kubectl apply -f kubernetes/base/appointment-service.yaml
         kubectl apply -f kubernetes/prod/ingress.yaml
         
-        kubectl set image deployment/patient-service patient-service=${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.sha }} -n healthcare-prod
-        kubectl set image deployment/appointment-service appointment-service=${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.sha }} -n healthcare-prod
+        kubectl set image deployment/patient-service patient-service=${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.event.workflow_run.head_sha }} -n healthcare-prod
+        kubectl set image deployment/appointment-service appointment-service=${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.event.workflow_run.head_sha }} -n healthcare-prod
         
         kubectl rollout status deployment/patient-service -n healthcare-prod --timeout=300s
         kubectl rollout status deployment/appointment-service -n healthcare-prod --timeout=300s
