@@ -7,6 +7,15 @@ on:
       - completed
     branches: [hk-LBG]
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+        - dev
+        - staging
+        - prod
 
 env:
   ACR_NAME: 'kamalj2kkkk'
@@ -43,10 +52,17 @@ jobs:
         docker build -t ${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.event.workflow_run.head_sha }} .
         docker push ${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.event.workflow_run.head_sha }}
 
+    - name: Verify Images
+      run: |
+        echo "✅ Verifying images in ACR..."
+        az login --service-principal -u ${{ secrets.AZURE_CLIENT_ID }} -p ${{ secrets.AZURE_CLIENT_SECRET }} --tenant ${{ secrets.AZURE_TENANT_ID }}
+        az acr repository list --name ${{ env.ACR_NAME }} --output table
+
   deploy-to-dev:
     needs: build-and-push
     runs-on: ubuntu-latest
     environment: dev
+    if: ${{ github.event.workflow_run && github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     
     steps:
     - name: Checkout code
@@ -68,37 +84,30 @@ jobs:
         resource-group: rg-dev-healthcare-lbg
         cluster-name: aks-dev-healthcare-lbg
 
-    - name: Prepare Kubernetes Manifests
-      run: |
-        echo "📝 Preparing Kubernetes manifests for dev environment..."
-        
-        mkdir -p kubernetes/processed/dev
-        
-        export ENVIRONMENT="dev"
-        export REPLICA_COUNT="2"
-        export IMAGE_TAG="${{ github.event.workflow_run.head_sha }}"
-        
-        envsubst < kubernetes/base/namespace.yaml > kubernetes/processed/dev/namespace.yaml
-        envsubst < kubernetes/base/patient-service.yaml > kubernetes/processed/dev/patient-service.yaml
-        envsubst < kubernetes/base/appointment-service.yaml > kubernetes/processed/dev/appointment-service.yaml
-        
-        cp kubernetes/dev/ingress.yaml kubernetes/processed/dev/ingress.yaml
-        
-        echo "✅ Manifests prepared for dev environment"
-
     - name: Deploy to AKS Cluster
       run: |
         echo "🚀 Deploying to AKS cluster..."
         
-        kubectl apply -f kubernetes/processed/dev/namespace.yaml
-        kubectl apply -f kubernetes/processed/dev/patient-service.yaml
-        kubectl apply -f kubernetes/processed/dev/appointment-service.yaml
-        kubectl apply -f kubernetes/processed/dev/ingress.yaml
+        # Process and apply namespace
+        export ENVIRONMENT="dev"
+        envsubst < kubernetes/base/namespace.yaml | kubectl apply -f -
         
+        # Process and apply services
+        export REPLICA_COUNT="2"
+        export IMAGE_TAG="${{ github.event.workflow_run.head_sha }}"
+        
+        envsubst < kubernetes/base/patient-service.yaml | kubectl apply -f -
+        envsubst < kubernetes/base/appointment-service.yaml | kubectl apply -f -
+        kubectl apply -f kubernetes/dev/ingress.yaml
+        
+        # Wait for rollout
         kubectl rollout status deployment/patient-service -n healthcare-dev --timeout=300s
         kubectl rollout status deployment/appointment-service -n healthcare-dev --timeout=300s
         
+        # Verify deployment
+        echo "📊 Deployment Status:"
         kubectl get pods -n healthcare-dev
         kubectl get services -n healthcare-dev
+        kubectl get ingress -n healthcare-dev
         
         echo "✅ Dev deployment completed successfully!"

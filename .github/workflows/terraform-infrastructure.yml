@@ -3,6 +3,9 @@ name: Terraform Infrastructure for LBG
 on:
   push:
     branches: [ hk-LBG ]
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform-infrastructure.yml'
   workflow_dispatch:
     inputs:
       environment:
@@ -54,14 +57,8 @@ jobs:
     - name: Fix VNET State Issue
       run: |
         echo "🔧 Fixing VNET state issue..."
-        
-        # Remove VNET from state if it exists
         terraform state rm azurerm_virtual_network.main 2>/dev/null || echo "VNET not in state"
-        
-        # Import VNET - continue even if it fails (it might already be managed)
-        terraform import azurerm_virtual_network.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-dev-healthcare-lbg/providers/Microsoft.Network/virtualNetworks/vnet-dev-healthcare-lbg || echo "⚠️ VNET import may have issues, but continuing with deployment..."
-        
-        echo "✅ VNET state fix completed!"
+        terraform import azurerm_virtual_network.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-dev-healthcare-lbg/providers/Microsoft.Network/virtualNetworks/vnet-dev-healthcare-lbg || echo "⚠️ VNET import may have issues, but continuing..."
       env:
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -93,141 +90,3 @@ jobs:
         az login --service-principal -u ${{ secrets.AZURE_CLIENT_ID }} -p ${{ secrets.AZURE_CLIENT_SECRET }} --tenant ${{ secrets.AZURE_TENANT_ID }}
         az aks show --name aks-dev-healthcare-lbg --resource-group rg-dev-healthcare-lbg --query provisioningState -o tsv
         echo "🎉 AKS Cluster: aks-dev-healthcare-lbg should be running!"
-      env:
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-  terraform-staging:
-    name: 🚀 Deploy to Staging
-    runs-on: ubuntu-latest
-    environment: staging
-    needs: terraform-dev
-    
-    defaults:
-      run:
-        working-directory: terraform
-
-    env:
-      TF_VAR_environment: "staging"
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v2
-
-    - name: Terraform Init
-      run: terraform init -backend-config=environments/staging/backend.conf
-      env:
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Fix VNET State Issue
-      run: |
-        echo "🔧 Fixing VNET state issue..."
-        
-        # Remove VNET from state if it exists
-        terraform state rm azurerm_virtual_network.main 2>/dev/null || echo "VNET not in state"
-        
-        # Import VNET - continue even if it fails (it might already be managed)
-        terraform import azurerm_virtual_network.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-staging-healthcare-lbg/providers/Microsoft.Network/virtualNetworks/vnet-staging-healthcare-lbg || echo "⚠️ VNET import may have issues, but continuing with deployment..."
-        
-        echo "✅ VNET state fix completed!"
-      env:
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Terraform Validate
-      run: terraform validate
-
-    - name: Terraform Plan
-      run: terraform plan -var-file=environments/staging/terraform.tfvars
-      env:
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Terraform Apply
-      run: terraform apply -auto-approve -var-file=environments/staging/terraform.tfvars
-      env:
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-  terraform-prod:
-    name: 🚀 Deploy to Production
-    runs-on: ubuntu-latest
-    environment: production
-    needs: terraform-staging
-    
-    defaults:
-      run:
-        working-directory: terraform
-
-    env:
-      TF_VAR_environment: "prod"
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v2
-
-    - name: Terraform Init
-      run: terraform init -backend-config=environments/prod/backend.conf -reconfigure
-      env:
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Fix VNET State Issue
-      run: |
-        echo "🔧 Fixing VNET state issue..."
-        
-        # Remove VNET from state if it exists
-        terraform state rm azurerm_virtual_network.main 2>/dev/null || echo "VNET not in state"
-        
-        # Import VNET - continue even if it fails (it might already be managed)
-        terraform import azurerm_virtual_network.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-prod-healthcare-lbg/providers/Microsoft.Network/virtualNetworks/vnet-prod-healthcare-lbg || echo "⚠️ VNET import may have issues, but continuing with deployment..."
-        
-        echo "✅ VNET state fix completed!"
-      env:
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Terraform Validate
-      run: terraform validate
-
-    - name: Terraform Plan
-      run: terraform plan -var-file=environments/prod/terraform.tfvars
-      env:
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Terraform Apply
-      run: terraform apply -auto-approve -var-file=environments/prod/terraform.tfvars
-      env:
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Verify Production
-      run: |
-        echo "✅ PRODUCTION INFRASTRUCTURE DEPLOYED!"
-        echo "🎉 All infrastructure environments deployed successfully!"
