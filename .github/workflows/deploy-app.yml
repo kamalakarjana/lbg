@@ -6,6 +6,7 @@ on:
     types:
       - completed
     branches: [hk-LBG]
+  workflow_dispatch:  # Allows manual triggering
 
 env:
   ACR_NAME: 'kamalj2kkkk'
@@ -16,8 +17,17 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
 
     steps:
-    - name: Checkout code
+    - name: Checkout code from triggering workflow
       uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.workflow_run.head_sha }}
+
+    - name: Debug Information
+      run: |
+        echo "Triggering Workflow: ${{ github.event.workflow_run.name }}"
+        echo "Conclusion: ${{ github.event.workflow_run.conclusion }}"
+        echo "Head SHA: ${{ github.event.workflow_run.head_sha }}"
+        ls -la
 
     - name: Log in to Azure Container Registry
       uses: azure/docker-login@v1
@@ -61,13 +71,13 @@ jobs:
     - name: Install NGINX Ingress Controller
       run: |
         # Install NGINX Ingress Controller if not exists
-        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml --dry-run=client -o yaml | kubectl apply -f -
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml
         
         # Wait for ingress controller
         kubectl wait --namespace ingress-nginx \
           --for=condition=ready pod \
           --selector=app.kubernetes.io/component=controller \
-          --timeout=90s
+          --timeout=300s
 
     - name: Deploy to Dev
       run: |
@@ -75,9 +85,9 @@ jobs:
         kubectl create namespace healthcare-dev --dry-run=client -o yaml | kubectl apply -f -
         
         # Deploy services
-        kubectl apply -f kubernetes/base/patient-service.yaml
-        kubectl apply -f kubernetes/base/appointment-service.yaml
-        kubectl apply -f kubernetes/dev/ingress.yaml
+        kubectl apply -f kubernetes/base/patient-service.yaml -n healthcare-dev
+        kubectl apply -f kubernetes/base/appointment-service.yaml -n healthcare-dev
+        kubectl apply -f kubernetes/dev/ingress.yaml -n healthcare-dev
         
         # Update images
         kubectl set image deployment/patient-service patient-service=${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.event.workflow_run.head_sha }} -n healthcare-dev
@@ -111,18 +121,18 @@ jobs:
 
     - name: Install NGINX Ingress Controller
       run: |
-        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml --dry-run=client -o yaml | kubectl apply -f -
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml
         kubectl wait --namespace ingress-nginx \
           --for=condition=ready pod \
           --selector=app.kubernetes.io/component=controller \
-          --timeout=90s
+          --timeout=300s
 
     - name: Deploy to Staging
       run: |
         kubectl create namespace healthcare-staging --dry-run=client -o yaml | kubectl apply -f -
-        kubectl apply -f kubernetes/base/patient-service.yaml
-        kubectl apply -f kubernetes/base/appointment-service.yaml
-        kubectl apply -f kubernetes/staging/ingress.yaml
+        kubectl apply -f kubernetes/base/patient-service.yaml -n healthcare-staging
+        kubectl apply -f kubernetes/base/appointment-service.yaml -n healthcare-staging
+        kubectl apply -f kubernetes/staging/ingress.yaml -n healthcare-staging
         
         kubectl set image deployment/patient-service patient-service=${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.event.workflow_run.head_sha }} -n healthcare-staging
         kubectl set image deployment/appointment-service appointment-service=${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.event.workflow_run.head_sha }} -n healthcare-staging
@@ -154,18 +164,18 @@ jobs:
 
     - name: Install NGINX Ingress Controller
       run: |
-        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml --dry-run=client -o yaml | kubectl apply -f -
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml
         kubectl wait --namespace ingress-nginx \
           --for=condition=ready pod \
           --selector=app.kubernetes.io/component=controller \
-          --timeout=90s
+          --timeout=300s
 
     - name: Deploy to Production
       run: |
         kubectl create namespace healthcare-prod --dry-run=client -o yaml | kubectl apply -f -
-        kubectl apply -f kubernetes/base/patient-service.yaml
-        kubectl apply -f kubernetes/base/appointment-service.yaml
-        kubectl apply -f kubernetes/prod/ingress.yaml
+        kubectl apply -f kubernetes/base/patient-service.yaml -n healthcare-prod
+        kubectl apply -f kubernetes/base/appointment-service.yaml -n healthcare-prod
+        kubectl apply -f kubernetes/prod/ingress.yaml -n healthcare-prod
         
         kubectl set image deployment/patient-service patient-service=${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.event.workflow_run.head_sha }} -n healthcare-prod
         kubectl set image deployment/appointment-service appointment-service=${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.event.workflow_run.head_sha }} -n healthcare-prod
