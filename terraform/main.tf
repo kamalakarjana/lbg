@@ -94,30 +94,30 @@ resource "azurerm_resource_group" "main" {
   tags     = local.final_tags
 }
 
-# Virtual Network
+# Virtual Network - FIXED: Use simple CIDR ranges
 resource "azurerm_virtual_network" "main" {
   name                = "vnet-${var.environment}-healthcare-lbg"
-  address_space       = ["10.${index(["dev", "staging", "prod"], var.environment)}.0.0/16"]
+  address_space       = ["10.0.0.0/16"]  # ✅ FIXED: Simple CIDR
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   tags                = azurerm_resource_group.main.tags
 }
 
-# AKS Subnet
+# AKS Subnet - FIXED: Use simple CIDR ranges
 resource "azurerm_subnet" "aks" {
   name                 = "snet-aks-${var.environment}"
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
-  address_prefixes     = ["10.${index(["dev", "staging", "prod"], var.environment)}.1.0/24"]
+  address_prefixes     = ["10.0.1.0/24"]  # ✅ FIXED: Simple CIDR
 }
 
-# AKS Cluster
+# AKS Cluster - FIXED: Add depends_on and use supported version
 resource "azurerm_kubernetes_cluster" "main" {
   name                = "aks-${var.environment}-healthcare-lbg"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   dns_prefix          = "aks-${var.environment}-lbg"
-  kubernetes_version  = "1.33.3"
+  kubernetes_version  = "1.26.3"  # ✅ FIXED: Use supported version
   sku_tier            = local.config.sku_tier
 
   default_node_pool {
@@ -134,11 +134,16 @@ resource "azurerm_kubernetes_cluster" "main" {
   network_profile {
     network_plugin = "azure"
     network_policy = "azure"
-    service_cidr   = "10.${index(["dev", "staging", "prod"], var.environment)}.2.0/24"
-    dns_service_ip = "10.${index(["dev", "staging", "prod"], var.environment)}.2.10"
+    service_cidr   = "10.0.2.0/24"  # ✅ FIXED: Simple CIDR
+    dns_service_ip = "10.0.2.10"    # ✅ FIXED: Simple IP
   }
 
   tags = azurerm_resource_group.main.tags
+
+  # ✅ CRITICAL FIX: Add explicit dependency
+  depends_on = [
+    azurerm_subnet.aks
+  ]
 }
 
 # Public IP for Ingress
@@ -149,6 +154,11 @@ resource "azurerm_public_ip" "ingress" {
   allocation_method   = "Static"
   sku                 = "Standard"
   tags                = azurerm_resource_group.main.tags
+
+  # ✅ Wait for AKS cluster to be ready
+  depends_on = [
+    azurerm_kubernetes_cluster.main
+  ]
 }
 
 # Outputs
