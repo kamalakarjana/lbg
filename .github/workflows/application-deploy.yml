@@ -8,7 +8,6 @@ on:
       - 'kubernetes/**'
       - '.github/workflows/application-deploy.yml'
   workflow_dispatch:
-  # REMOVED dependency on Terraform workflow to test independently
 
 env:
   ACR_NAME: 'kamalj2kkkk'
@@ -57,6 +56,9 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Install envsubst
+      run: sudo apt-get install -y gettext-base
+
     - name: Azure Login
       uses: azure/login@v1
       with:
@@ -68,28 +70,45 @@ jobs:
         resource-group: rg-dev-healthcare-lbg
         cluster-name: aks-dev-healthcare-lbg
 
+    - name: Prepare Kubernetes Manifests
+      run: |
+        echo "📝 Preparing Kubernetes manifests for dev environment..."
+        
+        # Create processed manifests directory
+        mkdir -p kubernetes/processed/dev
+        
+        # Process namespace.yaml
+        export ENVIRONMENT="dev"
+        export REPLICA_COUNT="2"
+        export IMAGE_TAG="${{ github.sha }}"
+        
+        envsubst < kubernetes/base/namespace.yaml > kubernetes/processed/dev/namespace.yaml
+        envsubst < kubernetes/base/patient-service.yaml > kubernetes/processed/dev/patient-service.yaml
+        envsubst < kubernetes/base/appointment-service.yaml > kubernetes/processed/dev/appointment-service.yaml
+        
+        # Copy ingress (no variables to substitute)
+        cp kubernetes/dev/ingress.yaml kubernetes/processed/dev/ingress.yaml
+        
+        echo "✅ Manifests prepared for dev environment"
+
     - name: Deploy to AKS Cluster
       run: |
         echo "🚀 Deploying to AKS cluster..."
         
-        # Create namespace if not exists
-        kubectl create namespace healthcare-dev --dry-run=client -o yaml | kubectl apply -f -
-        
-        # Deploy base services
-        kubectl apply -f kubernetes/base/patient-service.yaml -n healthcare-dev
-        kubectl apply -f kubernetes/base/appointment-service.yaml -n healthcare-dev
-        kubectl apply -f kubernetes/dev/ingress.yaml -n healthcare-dev
-        
-        # Update images to newly built ones
-        kubectl set image deployment/patient-service patient-service=${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.sha }} -n healthcare-dev
-        kubectl set image deployment/appointment-service appointment-service=${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.sha }} -n healthcare-dev
+        # Apply all manifests
+        kubectl apply -f kubernetes/processed/dev/namespace.yaml
+        kubectl apply -f kubernetes/processed/dev/patient-service.yaml
+        kubectl apply -f kubernetes/processed/dev/appointment-service.yaml
+        kubectl apply -f kubernetes/processed/dev/ingress.yaml
         
         # Wait for rollout
         kubectl rollout status deployment/patient-service -n healthcare-dev --timeout=300s
         kubectl rollout status deployment/appointment-service -n healthcare-dev --timeout=300s
         
         # Verify deployment
+        echo "📊 Deployment Status:"
         kubectl get pods -n healthcare-dev
         kubectl get services -n healthcare-dev
+        kubectl get ingress -n healthcare-dev
         
         echo "✅ Dev deployment completed successfully!"
