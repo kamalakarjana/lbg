@@ -51,18 +51,14 @@ jobs:
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
-    - name: Force Unlock Terraform State
-      run: terraform force-unlock -force b1cc13a2-ad89-7d1e-66a1-ca8321ce69f2
-      env:
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Import Existing VNET (Fix State Issue)
+    - name: Import Existing VNET (WITH RETRY)
       run: |
         echo "🔄 Importing existing VNET into Terraform state..."
-        terraform import azurerm_virtual_network.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-dev-healthcare-lbg/providers/Microsoft.Network/virtualNetworks/vnet-dev-healthcare-lbg || echo "✅ VNET already in state or import not needed"
+        # First, remove any existing reference from state
+        terraform state rm azurerm_virtual_network.main 2>/dev/null || echo "VNET not in state, continuing..."
+        
+        # Now import the VNET
+        terraform import azurerm_virtual_network.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-dev-healthcare-lbg/providers/Microsoft.Network/virtualNetworks/vnet-dev-healthcare-lbg
       env:
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -121,18 +117,14 @@ jobs:
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
-    - name: Force Unlock Terraform State
-      run: terraform force-unlock -force b1cc13a2-ad89-7d1e-66a1-ca8321ce69f2
-      env:
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Import Existing VNET (Fix State Issue)
+    - name: Import Existing VNET (WITH RETRY)
       run: |
         echo "🔄 Importing existing VNET into Terraform state..."
-        terraform import azurerm_virtual_network.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-staging-healthcare-lbg/providers/Microsoft.Network/virtualNetworks/vnet-staging-healthcare-lbg || echo "✅ VNET already in state or import not needed"
+        # First, remove any existing reference from state
+        terraform state rm azurerm_virtual_network.main 2>/dev/null || echo "VNET not in state, continuing..."
+        
+        # Now import the VNET
+        terraform import azurerm_virtual_network.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-staging-healthcare-lbg/providers/Microsoft.Network/virtualNetworks/vnet-staging-healthcare-lbg
       env:
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -186,18 +178,14 @@ jobs:
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
-    - name: Force Unlock Terraform State
-      run: terraform force-unlock -force b1cc13a2-ad89-7d1e-66a1-ca8321ce69f2
-      env:
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Import Existing VNET (Fix State Issue)
+    - name: Import Existing VNET (WITH RETRY)
       run: |
         echo "🔄 Importing existing VNET into Terraform state..."
-        terraform import azurerm_virtual_network.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-prod-healthcare-lbg/providers/Microsoft.Network/virtualNetworks/vnet-prod-healthcare-lbg || echo "✅ VNET already in state or import not needed"
+        # First, remove any existing reference from state
+        terraform state rm azurerm_virtual_network.main 2>/dev/null || echo "VNET not in state, continuing..."
+        
+        # Now import the VNET
+        terraform import azurerm_virtual_network.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-prod-healthcare-lbg/providers/Microsoft.Network/virtualNetworks/vnet-prod-healthcare-lbg
       env:
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
