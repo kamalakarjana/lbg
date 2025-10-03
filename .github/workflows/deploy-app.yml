@@ -1,0 +1,146 @@
+name: Build and Deploy Application for LBG
+
+on:
+  push:
+    branches: [ hk-LBG ]
+
+env:
+  ACR_NAME: 'kamalj2kkkk'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Log in to Azure Container Registry
+      uses: azure/docker-login@v1
+      with:
+        login-server: ${{ env.ACR_NAME }}.azurecr.io
+        username: ${{ secrets.ACR_USERNAME }}
+        password: ${{ secrets.ACR_PASSWORD }}
+
+    - name: Build and push Patient Service
+      run: |
+        cd src/patient-service
+        docker build -t ${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.sha }} .
+        docker push ${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.sha }}
+
+    - name: Build and push Appointment Service
+      run: |
+        cd src/appointment-service
+        docker build -t ${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.sha }} .
+        docker push ${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.sha }}
+
+  deploy-to-dev:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: dev
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Get AKS credentials
+      uses: azure/aks-set-context@v3
+      with:
+        resource-group: rg-dev-healthcare-lbg
+        cluster-name: aks-dev-healthcare-lbg
+
+    - name: Deploy to Dev
+      run: |
+        # Create namespace
+        kubectl create namespace healthcare-dev --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Deploy services
+        kubectl apply -f kubernetes/base/patient-service.yaml
+        kubectl apply -f kubernetes/base/appointment-service.yaml
+        kubectl apply -f kubernetes/dev/ingress.yaml
+        
+        # Update images
+        kubectl set image deployment/patient-service patient-service=${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.sha }} -n healthcare-dev
+        kubectl set image deployment/appointment-service appointment-service=${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.sha }} -n healthcare-dev
+        
+        # Wait for rollout
+        kubectl rollout status deployment/patient-service -n healthcare-dev --timeout=300s
+        kubectl rollout status deployment/appointment-service -n healthcare-dev --timeout=300s
+        
+        echo "✅ Dev deployment completed!"
+
+  deploy-to-staging:
+    needs: deploy-to-dev
+    runs-on: ubuntu-latest
+    environment: staging
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Get AKS credentials
+      uses: azure/aks-set-context@v3
+      with:
+        resource-group: rg-staging-healthcare-lbg
+        cluster-name: aks-staging-healthcare-lbg
+
+    - name: Deploy to Staging
+      run: |
+        kubectl create namespace healthcare-staging --dry-run=client -o yaml | kubectl apply -f -
+        kubectl apply -f kubernetes/base/patient-service.yaml
+        kubectl apply -f kubernetes/base/appointment-service.yaml
+        kubectl apply -f kubernetes/staging/ingress.yaml
+        
+        kubectl set image deployment/patient-service patient-service=${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.sha }} -n healthcare-staging
+        kubectl set image deployment/appointment-service appointment-service=${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.sha }} -n healthcare-staging
+        
+        kubectl rollout status deployment/patient-service -n healthcare-staging --timeout=300s
+        kubectl rollout status deployment/appointment-service -n healthcare-staging --timeout=300s
+        
+        echo "✅ Staging deployment completed!"
+
+  deploy-to-prod:
+    needs: deploy-to-staging
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Get AKS credentials
+      uses: azure/aks-set-context@v3
+      with:
+        resource-group: rg-prod-healthcare-lbg
+        cluster-name: aks-prod-healthcare-lbg
+
+    - name: Deploy to Production
+      run: |
+        kubectl create namespace healthcare-prod --dry-run=client -o yaml | kubectl apply -f -
+        kubectl apply -f kubernetes/base/patient-service.yaml
+        kubectl apply -f kubernetes/base/appointment-service.yaml
+        kubectl apply -f kubernetes/prod/ingress.yaml
+        
+        kubectl set image deployment/patient-service patient-service=${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.sha }} -n healthcare-prod
+        kubectl set image deployment/appointment-service appointment-service=${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.sha }} -n healthcare-prod
+        
+        kubectl rollout status deployment/patient-service -n healthcare-prod --timeout=300s
+        kubectl rollout status deployment/appointment-service -n healthcare-prod --timeout=300s
+        
+        echo "✅ Production deployment completed!"
+        echo "🚀 All LBG environments deployed successfully!"
