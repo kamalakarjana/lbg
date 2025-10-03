@@ -1,5 +1,5 @@
 environment = "dev"
-location = "East US"
+location = "Central US"
 node_count = 1
-vm_size = "Standard_B2s"
+vm_size = "Standard_B1s"
 aks_sku_tier = "Free"

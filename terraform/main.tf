@@ -30,7 +30,7 @@ variable "environment" {
 variable "location" {
   description = "Azure region"
   type        = string
-  default     = "East US"
+  default     = "Central US"
 }
 
 variable "node_count" {
@@ -48,7 +48,7 @@ variable "aks_sku_tier" {
 variable "vm_size" {
   description = "VM size for AKS nodes"
   type        = string
-  default     = "Standard_B2s"
+  default     = "Standard_B1s"
 }
 
 variable "tags" {
@@ -64,17 +64,17 @@ locals {
   environment_map = {
     dev = {
       node_count = 1
-      vm_size    = "Standard_B2s"
+      vm_size    = "Standard_B1s"
       sku_tier   = "Free"
     }
     staging = {
       node_count = 1
-      vm_size    = "Standard_B2s"
+      vm_size    = "Standard_B1s"
       sku_tier   = "Free"
     }
     prod = {
       node_count = 1
-      vm_size    = "Standard_B2s"
+      vm_size    = "Standard_B1s"
       sku_tier   = "Standard"
     }
   }
