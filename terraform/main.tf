@@ -48,7 +48,7 @@ variable "aks_sku_tier" {
 variable "vm_size" {
   description = "VM size for AKS nodes"
   type        = string
-  default     = "Standard_B1s"
+  default     = "Standard_B2s"
 }
 
 variable "tags" {
@@ -59,22 +59,21 @@ variable "tags" {
   }
 }
 
-# Local values
 locals {
   environment_map = {
     dev = {
       node_count = 1
-      vm_size    = "Standard_B1s"
+      vm_size    = "Standard_B2s"  # ✅ CHANGED: 2 vCPUs, 4GB RAM
       sku_tier   = "Free"
     }
     staging = {
       node_count = 1
-      vm_size    = "Standard_B1s"
+      vm_size    = "Standard_B2s"  # ✅ CHANGED: 2 vCPUs, 4GB RAM
       sku_tier   = "Free"
     }
     prod = {
       node_count = 1
-      vm_size    = "Standard_B1s"
+      vm_size    = "Standard_B2s"  # ✅ CHANGED: 2 vCPUs, 4GB RAM
       sku_tier   = "Standard"
     }
   }
