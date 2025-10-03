@@ -1,0 +1,48 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches: [ main, develop, staging ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: acrhealthapp01.azurecr.io
+  IMAGE_NAME_PATIENT: patient-service
+  IMAGE_NAME_APPOINTMENT: appointment-service
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Log in to Azure Container Registry
+      uses: azure/docker-login@v1
+      with:
+        login-server: ${{ env.REGISTRY }}
+        username: ${{ secrets.ACR_USERNAME }}
+        password: ${{ secrets.ACR_PASSWORD }}
+
+    - name: Build and push Patient Service
+      run: |
+        cd src/patient-service
+        docker build -t $REGISTRY/$IMAGE_NAME_PATIENT:$GITHUB_SHA .
+        docker push $REGISTRY/$IMAGE_NAME_PATIENT:$GITHUB_SHA
+        docker tag $REGISTRY/$IMAGE_NAME_PATIENT:$GITHUB_SHA $REGISTRY/$IMAGE_NAME_PATIENT:latest
+        docker push $REGISTRY/$IMAGE_NAME_PATIENT:latest
+
+    - name: Build and push Appointment Service
+      run: |
+        cd src/appointment-service
+        docker build -t $REGISTRY/$IMAGE_NAME_APPOINTMENT:$GITHUB_SHA .
+        docker push $REGISTRY/$IMAGE_NAME_APPOINTMENT:$GITHUB_SHA
+        docker tag $REGISTRY/$IMAGE_NAME_APPOINTMENT:$GITHUB_SHA $REGISTRY/$IMAGE_NAME_APPOINTMENT:latest
+        docker push $REGISTRY/$IMAGE_NAME_APPOINTMENT:latest
+
+    - name: Verify pushed images
+      run: |
+        echo "✅ Patient Service Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PATIENT }}:${{ github.sha }}"
+        echo "✅ Appointment Service Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_APPOINTMENT }}:${{ github.sha }}"

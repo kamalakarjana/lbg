@@ -1,0 +1,17 @@
+{
+  "name": "patient-service",
+  "version": "1.0.0",
+  "description": "Healthcare Patient Service",
+  "main": "patient-service.js",
+  "scripts": {
+    "start": "node patient-service.js",
+    "dev": "node patient-service.js",
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "keywords": ["healthcare", "patient", "microservice"],
+  "author": "Healthcare Team",
+  "license": "MIT"
+}

@@ -1,0 +1,17 @@
+{
+  "name": "appointment-service",
+  "version": "1.0.0",
+  "description": "Healthcare Appointment Service",
+  "main": "appointment-service.js",
+  "scripts": {
+    "start": "node appointment-service.js",
+    "dev": "node appointment-service.js",
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "keywords": ["healthcare", "appointment", "microservice"],
+  "author": "Healthcare Team",
+  "license": "MIT"
+}
