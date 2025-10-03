@@ -8,11 +8,8 @@ terraform {
     }
   }
 
+  # Empty backend - configuration provided via -backend-config files
   backend "azurerm" {
-    resource_group_name  = "hackton-lbg-test"
-    storage_account_name = "kamalj2kar"
-    container_name       = "kamalj2kcontainer"
-    key                  = "healthcare-${var.environment}.tfstate"
   }
 }
 

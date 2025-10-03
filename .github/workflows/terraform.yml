@@ -29,7 +29,11 @@ jobs:
         echo "Branch: ${{ github.ref }}"
         echo "Event: ${{ github.event_name }}"
         echo "SHA: ${{ github.sha }}"
+        echo "Working Directory:"
+        pwd
         ls -la
+        echo "Terraform files:"
+        ls -la environments/dev/
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v2
@@ -37,7 +41,12 @@ jobs:
         terraform_version: ${{ env.TF_VERSION }}
 
     - name: Terraform Init
-      run: terraform init
+      run: terraform init -backend-config=environments/dev/backend.conf
+      env:
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     - name: Terraform Validate
       run: terraform validate
@@ -98,7 +107,12 @@ jobs:
         terraform_version: ${{ env.TF_VERSION }}
 
     - name: Terraform Init
-      run: terraform init
+      run: terraform init -backend-config=environments/staging/backend.conf
+      env:
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     - name: Terraform Validate
       run: terraform validate
@@ -139,7 +153,12 @@ jobs:
         terraform_version: ${{ env.TF_VERSION }}
 
     - name: Terraform Init
-      run: terraform init
+      run: terraform init -backend-config=environments/prod/backend.conf
+      env:
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     - name: Terraform Validate
       run: terraform validate
