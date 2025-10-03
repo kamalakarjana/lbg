@@ -1,0 +1,77 @@
+name: Build and Deploy Application for LBG
+
+on:
+  workflow_run:
+    workflows: ["Terraform Infrastructure for LBG"]
+    types:
+      - completed
+    branches: [hk-LBG]
+  workflow_dispatch:
+
+env:
+  ACR_NAME: 'kamalj2kkkk'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+    - name: Checkout code from triggering workflow
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.workflow_run.head_sha }}
+
+    - name: Log in to Azure Container Registry
+      uses: azure/docker-login@v1
+      with:
+        login-server: ${{ env.ACR_NAME }}.azurecr.io
+        username: ${{ secrets.ACR_USERNAME }}
+        password: ${{ secrets.ACR_PASSWORD }}
+
+    - name: Build and push Patient Service
+      run: |
+        cd src/patient-service
+        docker build -t ${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.event.workflow_run.head_sha }} .
+        docker push ${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.event.workflow_run.head_sha }}
+
+    - name: Build and push Appointment Service
+      run: |
+        cd src/appointment-service
+        docker build -t ${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.event.workflow_run.head_sha }} .
+        docker push ${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.event.workflow_run.head_sha }}
+
+  deploy-to-dev:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: dev
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Get AKS credentials
+      uses: azure/aks-set-context@v3
+      with:
+        resource-group: rg-dev-healthcare-lbg
+        cluster-name: aks-dev-healthcare-lbg
+
+    - name: Deploy to Dev
+      run: |
+        kubectl create namespace healthcare-dev --dry-run=client -o yaml | kubectl apply -f -
+        kubectl apply -f kubernetes/base/patient-service.yaml -n healthcare-dev
+        kubectl apply -f kubernetes/base/appointment-service.yaml -n healthcare-dev
+        kubectl apply -f kubernetes/dev/ingress.yaml -n healthcare-dev
+        
+        kubectl set image deployment/patient-service patient-service=${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.event.workflow_run.head_sha }} -n healthcare-dev
+        kubectl set image deployment/appointment-service appointment-service=${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.event.workflow_run.head_sha }} -n healthcare-dev
+        
+        kubectl rollout status deployment/patient-service -n healthcare-dev --timeout=300s
+        kubectl rollout status deployment/appointment-service -n healthcare-dev --timeout=300s
+        
+        echo "✅ Dev deployment completed!"

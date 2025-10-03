@@ -75,7 +75,7 @@ locals {
     prod = {
       node_count = 4
       vm_size    = "Standard_D2s_v3"
-      sku_tier   = "Paid"
+      sku_tier   = "Standard"
     }
   }
   
