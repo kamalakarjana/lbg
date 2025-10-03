@@ -1,12 +1,14 @@
 name: Build and Deploy Application for LBG
 
 on:
-  workflow_run:
-    workflows: ["Terraform Infrastructure for LBG"]
-    types:
-      - completed
-    branches: [hk-LBG]
+  push:
+    branches: [ hk-LBG ]
+    paths:
+      - 'src/**'
+      - 'kubernetes/**'
+      - '.github/workflows/application-deploy.yml'
   workflow_dispatch:
+  # REMOVED dependency on Terraform workflow to test independently
 
 env:
   ACR_NAME: 'kamalj2kkkk'
@@ -14,13 +16,10 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run && github.event.workflow_run.conclusion == 'success' }}
 
     steps:
-    - name: Checkout code from triggering workflow
+    - name: Checkout code
       uses: actions/checkout@v4
-      with:
-        ref: ${{ github.event.workflow_run.head_sha }}
 
     - name: Log in to Azure Container Registry
       uses: azure/docker-login@v1
@@ -31,15 +30,23 @@ jobs:
 
     - name: Build and push Patient Service
       run: |
+        echo "🏗️ Building Patient Service..."
         cd src/patient-service
-        docker build -t ${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.event.workflow_run.head_sha }} .
-        docker push ${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.event.workflow_run.head_sha }}
+        docker build -t ${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.sha }} .
+        docker push ${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.sha }}
 
     - name: Build and push Appointment Service
       run: |
+        echo "🏗️ Building Appointment Service..."
         cd src/appointment-service
-        docker build -t ${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.event.workflow_run.head_sha }} .
-        docker push ${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.event.workflow_run.head_sha }}
+        docker build -t ${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.sha }} .
+        docker push ${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.sha }}
+
+    - name: Verify Images
+      run: |
+        echo "✅ Verifying images in ACR..."
+        az login --service-principal -u ${{ secrets.AZURE_CLIENT_ID }} -p ${{ secrets.AZURE_CLIENT_SECRET }} --tenant ${{ secrets.AZURE_TENANT_ID }}
+        az acr repository list --name ${{ env.ACR_NAME }} --output table
 
   deploy-to-dev:
     needs: build-and-push
@@ -61,17 +68,28 @@ jobs:
         resource-group: rg-dev-healthcare-lbg
         cluster-name: aks-dev-healthcare-lbg
 
-    - name: Deploy to Dev
+    - name: Deploy to AKS Cluster
       run: |
+        echo "🚀 Deploying to AKS cluster..."
+        
+        # Create namespace if not exists
         kubectl create namespace healthcare-dev --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Deploy base services
         kubectl apply -f kubernetes/base/patient-service.yaml -n healthcare-dev
         kubectl apply -f kubernetes/base/appointment-service.yaml -n healthcare-dev
         kubectl apply -f kubernetes/dev/ingress.yaml -n healthcare-dev
         
-        kubectl set image deployment/patient-service patient-service=${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.event.workflow_run.head_sha }} -n healthcare-dev
-        kubectl set image deployment/appointment-service appointment-service=${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.event.workflow_run.head_sha }} -n healthcare-dev
+        # Update images to newly built ones
+        kubectl set image deployment/patient-service patient-service=${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.sha }} -n healthcare-dev
+        kubectl set image deployment/appointment-service appointment-service=${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.sha }} -n healthcare-dev
         
+        # Wait for rollout
         kubectl rollout status deployment/patient-service -n healthcare-dev --timeout=300s
         kubectl rollout status deployment/appointment-service -n healthcare-dev --timeout=300s
         
-        echo "✅ Dev deployment completed!"
+        # Verify deployment
+        kubectl get pods -n healthcare-dev
+        kubectl get services -n healthcare-dev
+        
+        echo "✅ Dev deployment completed successfully!"
