@@ -17,14 +17,17 @@ on:
 env:
   TF_VERSION: '1.5.0'
 
+# Add concurrency control
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false  # Don't cancel running jobs
+
 jobs:
-  # Planning job - runs for all environments
-  terraform-plan:
-    name: 🗒️ Terraform Plan - ${{ matrix.environment }}
+  # Planning job - runs sequentially to avoid state locks
+  terraform-plan-dev:
+    name: 🗒️ Terraform Plan - Dev
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        environment: [dev, staging, prod]
+    environment: dev
     
     defaults:
       run:
@@ -34,24 +37,13 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Debug - List files
-      run: |
-        echo "Current directory:"
-        pwd
-        echo "Terraform directory contents:"
-        ls -la
-        echo "Environments directory:"
-        ls -la environments/
-        echo "Dev environment files:"
-        ls -la environments/dev/
-
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v2
       with:
         terraform_version: ${{ env.TF_VERSION }}
 
     - name: Terraform Init
-      run: terraform init -backend-config=environments/${{ matrix.environment }}/backend.conf
+      run: terraform init -backend-config=environments/dev/backend.conf
       env:
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -63,7 +55,7 @@ jobs:
 
     - name: Terraform Plan
       run: |
-        terraform plan -var-file=environments/${{ matrix.environment }}/terraform.tfvars -out=plan-${{ matrix.environment }}.tfplan
+        terraform plan -var-file=environments/dev/terraform.tfvars -out=plan-dev.tfplan -lock=false
       env:
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -73,15 +65,105 @@ jobs:
     - name: Upload Plan
       uses: actions/upload-artifact@v4
       with:
-        name: plan-${{ matrix.environment }}
-        path: terraform/plan-${{ matrix.environment }}.tfplan
+        name: plan-dev
+        path: terraform/plan-dev.tfplan
+
+  terraform-plan-staging:
+    name: 🗒️ Terraform Plan - Staging
+    runs-on: ubuntu-latest
+    environment: staging
+    needs: terraform-plan-dev  # Run sequentially
+    
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+
+    - name: Terraform Init
+      run: terraform init -backend-config=environments/staging/backend.conf
+      env:
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+    - name: Terraform Validate
+      run: terraform validate
+
+    - name: Terraform Plan
+      run: |
+        terraform plan -var-file=environments/staging/terraform.tfvars -out=plan-staging.tfplan -lock=false
+      env:
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+    - name: Upload Plan
+      uses: actions/upload-artifact@v4
+      with:
+        name: plan-staging
+        path: terraform/plan-staging.tfplan
+
+  terraform-plan-prod:
+    name: 🗒️ Terraform Plan - Prod
+    runs-on: ubuntu-latest
+    environment: production
+    needs: terraform-plan-staging  # Run sequentially
+    
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+
+    - name: Terraform Init
+      run: terraform init -backend-config=environments/prod/backend.conf
+      env:
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+    - name: Terraform Validate
+      run: terraform validate
+
+    - name: Terraform Plan
+      run: |
+        terraform plan -var-file=environments/prod/terraform.tfvars -out=plan-prod.tfplan -lock=false
+      env:
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+    - name: Upload Plan
+      uses: actions/upload-artifact@v4
+      with:
+        name: plan-prod
+        path: terraform/plan-prod.tfplan
 
   # Development Deployment
   deploy-dev:
     name: 🚀 Deploy to Development
     runs-on: ubuntu-latest
     environment: dev
-    needs: terraform-plan
+    needs: terraform-plan-prod  # Wait for all plans to complete
     
     defaults:
       run:
@@ -111,7 +193,7 @@ jobs:
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     - name: Terraform Apply
-      run: terraform apply -auto-approve plan-dev.tfplan
+      run: terraform apply -auto-approve plan-dev.tfplan -lock=false
       env:
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -127,9 +209,7 @@ jobs:
     name: 🚀 Deploy to Staging
     runs-on: ubuntu-latest
     environment: staging
-    needs: 
-      - terraform-plan
-      - deploy-dev
+    needs: deploy-dev
     
     defaults:
       run:
@@ -159,7 +239,7 @@ jobs:
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     - name: Terraform Apply
-      run: terraform apply -auto-approve plan-staging.tfplan
+      run: terraform apply -auto-approve plan-staging.tfplan -lock=false
       env:
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -171,9 +251,7 @@ jobs:
     name: 🚀 Deploy to Production
     runs-on: ubuntu-latest
     environment: production
-    needs: 
-      - terraform-plan
-      - deploy-staging
+    needs: deploy-staging
     
     defaults:
       run:
@@ -203,7 +281,7 @@ jobs:
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     - name: Terraform Apply
-      run: terraform apply -auto-approve plan-prod.tfplan
+      run: terraform apply -auto-approve plan-prod.tfplan -lock=false
       env:
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -213,3 +291,4 @@ jobs:
     - name: Verify Production
       run: |
         echo "✅ PRODUCTION DEPLOYMENT COMPLETED!"
+        echo "🎉 All environments deployed successfully!"
