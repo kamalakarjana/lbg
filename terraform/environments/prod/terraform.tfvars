@@ -1,5 +1,5 @@
 environment = "prod"
 location = "East US"
-node_count = 4
-vm_size = "Standard_D2s_v3"
-aks_sku_tier = "Paid"
+node_count = 1
+vm_size = "Standard_B2s"
+aks_sku_tier = "Standard"

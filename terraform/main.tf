@@ -36,7 +36,7 @@ variable "location" {
 variable "node_count" {
   description = "Number of AKS nodes"
   type        = number
-  default     = 2
+  default     = 1
 }
 
 variable "aks_sku_tier" {
@@ -63,18 +63,18 @@ variable "tags" {
 locals {
   environment_map = {
     dev = {
-      node_count = 2
+      node_count = 1
       vm_size    = "Standard_B2s"
       sku_tier   = "Free"
     }
     staging = {
-      node_count = 3
+      node_count = 1
       vm_size    = "Standard_B2s"
       sku_tier   = "Free"
     }
     prod = {
-      node_count = 4
-      vm_size    = "Standard_D2s_v3"
+      node_count = 1
+      vm_size    = "Standard_B2s"
       sku_tier   = "Standard"
     }
   }
