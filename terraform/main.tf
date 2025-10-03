@@ -117,7 +117,7 @@ resource "azurerm_kubernetes_cluster" "main" {
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   dns_prefix          = "aks-${var.environment}-lbg"
-  kubernetes_version  = "1.27.7"
+  kubernetes_version  = "1.33.3"
   sku_tier            = local.config.sku_tier
 
   default_node_pool {
