@@ -14,7 +14,8 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # FIXED: Check if the Terraform workflow was successful
+    if: ${{ github.event.workflow_run && github.event.workflow_run.conclusion == 'success' }}
 
     steps:
     - name: Checkout code from triggering workflow
