@@ -49,9 +49,9 @@ jobs:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       with:
         args: >
+          -Dsonar.organization=kamalakarjana
           -Dsonar.projectKey=healthcare-app-dev
           -Dsonar.projectName=healthcare-app-dev
-          -Dsonar.branch.name=${{ github.ref_name }}
 
   # Terraform Infrastructure as Code
   terraform:
