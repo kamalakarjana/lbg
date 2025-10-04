@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: appointment-service
+  namespace: healthcare-ns-dev
+  labels:
+    app: appointment-service
+    version: "1.2.0-dev"
+    environment: "dev"
+    branch: "dev"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: appointment-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: appointment-service
+        version: "1.2.0-dev"
+        environment: "dev"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3001"
+        prometheus.io/path: "/metrics"
+        commit.sha: "${GIT_COMMIT_SHA}"
+        branch: "dev"
+    spec:
+      containers:
+      - name: appointment-service
+        image: kamalj2kkkk.azurecr.io/appointment-service:dev
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3001
+          protocol: TCP
+          name: http
+        - containerPort: 3002
+          protocol: TCP
+          name: metrics
+        env:
+        - name: PORT
+          value: "3001"
+        - name: NODE_ENV
+          value: "development"
+        - name: LOG_LEVEL
+          value: "debug"
+        - name: DATABASE_URL
+          value: "postgresql://dev_user:dev_pass@postgresql-service-dev:5432/healthcare_dev"
+        - name: JWT_SECRET
+          value: "dev-jwt-secret-key-2024"
+        - name: PATIENT_SERVICE_URL
+          value: "http://patient-service.healthcare-ns-dev.svc.cluster.local"
+        - name: API_VERSION
+          value: "1.2.0-dev"
+        - name: ENVIRONMENT
+          value: "dev"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3001
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3001
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 3001
+            scheme: HTTP
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          failureThreshold: 10
+        volumeMounts:
+        - name: logs-volume
+          mountPath: /app/logs
+        - name: config-volume
+          mountPath: /app/config
+        - name: tmp-volume
+          mountPath: /tmp
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+      volumes:
+      - name: logs-volume
+        persistentVolumeClaim:
+          claimName: appointment-logs-pvc-dev
+      - name: config-volume
+        configMap:
+          name: appointment-config-dev
+      - name: tmp-volume
+        emptyDir: {}
+      restartPolicy: Always
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000

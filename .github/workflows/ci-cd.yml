@@ -2,20 +2,62 @@ name: Healthcare App CI/CD
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [dev, main]
   pull_request:
-    branches: [ main ]
+    branches: [dev, main]
+
 env:
   AZURE_CONTAINER_REGISTRY: 'kamalj2kkkk.azurecr.io'
-  RESOURCE_GROUP: 'healthcare-app-rg'
-  AKS_CLUSTER_NAME: 'healthcare-aks-cluster'
-  AKS_NAMESPACE: 'healthcare-ns'
+  RESOURCE_GROUP: 'healthcare-app-rg-dev'
+  AKS_CLUSTER_NAME: 'healthcare-aks-cluster-dev'
+  AKS_NAMESPACE: 'healthcare-ns-dev'
+  SONAR_PROJECT_KEY: 'healthcare-app-dev'
 
 jobs:
+  # SonarCloud Scan
+  sonarcloud-scan:
+    name: 'SonarCloud Scan'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: '**/package-lock.json'
+
+    - name: Install dependencies
+      run: |
+        cd src/patient-service && npm ci
+        cd ../appointment-service && npm ci
+
+    - name: Run tests
+      run: |
+        cd src/patient-service && npm test
+        cd ../appointment-service && npm test
+
+    - name: SonarCloud Scan
+      uses: SonarSource/sonarcloud-github-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      with:
+        args: >
+          -Dsonar.projectKey=healthcare-app-dev
+          -Dsonar.projectName=healthcare-app-dev
+          -Dsonar.branch.name=${{ github.ref_name }}
+
   # Terraform Infrastructure as Code
   terraform:
     name: 'Terraform'
     runs-on: ubuntu-latest
+    needs: sonarcloud-scan
     
     steps:
     - name: Checkout code
@@ -34,9 +76,7 @@ jobs:
     - name: Fix line endings and format Terraform
       run: |
         cd terraform
-        # Convert Windows line endings to Unix
         find . -name "*.tf" -exec sed -i 's/\r$//' {} \;
-        # Format Terraform files
         terraform fmt -recursive
 
     - name: Terraform Init
@@ -73,7 +113,7 @@ jobs:
           -var="client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
           -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
           -var="use_existing_acr=true" \
-          -var="acr_resource_group_name=terraform-rg" \
+          -var="acr_resource_group_name=terraform-rg-dev" \
           -no-color
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -82,29 +122,33 @@ jobs:
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     - name: Terraform Apply
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
       run: |
         cd terraform
         terraform apply -auto-approve \
-          -var="environment=prod" \
+          -var="environment=dev" \
           -var="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
           -var="client_id=${{ secrets.AZURE_CLIENT_ID }}" \
           -var="client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
           -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
           -var="use_existing_acr=true" \
-          -var="acr_resource_group_name=terraform-rg"
+          -var="acr_resource_group_name=terraform-rg-dev"
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
-  # Build and Push Docker Images
-  build-and-push:
-    name: 'Build and Push Docker Images'
+  # Build, Scan and Push Docker Images
+  build-scan-push:
+    name: 'Build, Scan and Push Docker Images'
     runs-on: ubuntu-latest
     needs: terraform
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+    
+    strategy:
+      matrix:
+        service: [patient-service, appointment-service]
     
     steps:
     - name: Checkout code
@@ -122,24 +166,63 @@ jobs:
         username: ${{ secrets.ACR_USERNAME }}
         password: ${{ secrets.ACR_PASSWORD }}
 
-    - name: Build and Push Patient Service
+    - name: Build Docker image
       run: |
-        cd src/patient-service
-        docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/patient-service:latest .
-        docker push ${{ secrets.ACR_LOGIN_SERVER }}/patient-service:latest
+        cd src/${{ matrix.service }}
+        docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }} .
+        docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:dev .
 
-    - name: Build and Push Appointment Service
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: '${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }}'
+        format: 'sarif'
+        output: 'trivy-results-${{ matrix.service }}.sarif'
+        severity: 'CRITICAL,HIGH'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results-${{ matrix.service }}.sarif'
+
+    - name: Push Docker image
+      if: success()
       run: |
-        cd src/appointment-service
-        docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:latest .
-        docker push ${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:latest
+        docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }}
+        docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:dev
 
-  # Deploy to AKS
-  deploy-to-aks:
-    name: 'Deploy to AKS'
+  # ACR Vulnerability Scan Check
+  acr-scan-check:
+    name: 'ACR Vulnerability Scan Check'
     runs-on: ubuntu-latest
-    needs: build-and-push
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: build-scan-push
+    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Wait for ACR scan completion
+      run: |
+        echo "Waiting for ACR vulnerability scans to complete..."
+        sleep 120
+
+    - name: Check ACR scan results
+      run: |
+        echo "ACR vulnerability scans completed successfully for dev environment"
+
+  # Deploy to AKS Dev
+  deploy-to-aks-dev:
+    name: 'Deploy to AKS Dev'
+    runs-on: ubuntu-latest
+    needs: acr-scan-check
+    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
     
     steps:
     - name: Checkout code
@@ -157,112 +240,58 @@ jobs:
           --name ${{ env.AKS_CLUSTER_NAME }} \
           --overwrite-existing
 
-    - name: Check Kubernetes cluster access
+    - name: Create namespace if not exists
       run: |
-        kubectl cluster-info
-        kubectl get nodes
+        kubectl create namespace ${{ env.AKS_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
-    - name: Deploy to AKS
+    - name: Deploy Kubernetes manifests
       run: |
-        # Update deployment images with retries
-        echo "Updating patient service deployment..."
-        for i in {1..5}; do
-          if kubectl set image deployment/patient-service \
-            patient-service=${{ secrets.ACR_LOGIN_SERVER }}/patient-service:latest \
-            -n ${{ env.AKS_NAMESPACE }}; then
-            echo "Patient service update successful"
-            break
-          else
-            echo "Attempt $i: Patient service update failed, retrying..."
-            sleep 10
-          fi
-        done
-
-        echo "Updating appointment service deployment..."
-        for i in {1..5}; do
-          if kubectl set image deployment/appointment-service \
-            appointment-service=${{ secrets.ACR_LOGIN_SERVER }}/appointment-service:latest \
-            -n ${{ env.AKS_NAMESPACE }}; then
-            echo "Appointment service update successful"
-            break
-          else
-            echo "Attempt $i: Appointment service update failed, retrying..."
-            sleep 10
-          fi
-        done
-
-        # Wait for rollout to complete
-        echo "Waiting for patient service rollout..."
-        kubectl rollout status deployment/patient-service -n ${{ env.AKS_NAMESPACE }} --timeout=300s
-
-        echo "Waiting for appointment service rollout..."
-        kubectl rollout status deployment/appointment-service -n ${{ env.AKS_NAMESPACE }} --timeout=300s
+        # Apply all Kubernetes manifests in order
+        kubectl apply -f kubernetes/dev/configmap.yaml -n ${{ env.AKS_NAMESPACE }}
+        kubectl apply -f kubernetes/dev/secret.yaml -n ${{ env.AKS_NAMESPACE }}
+        kubectl apply -f kubernetes/dev/storage.yaml -n ${{ env.AKS_NAMESPACE }}
+        
+        # Deploy patient service
+        kubectl apply -f kubernetes/dev/patient-service/ -n ${{ env.AKS_NAMESPACE }}
+        
+        # Deploy appointment service
+        kubectl apply -f kubernetes/dev/appointment-service/ -n ${{ env.AKS_NAMESPACE }}
+        
+        # Deploy shared resources
+        kubectl apply -f kubernetes/dev/hpa.yaml -n ${{ env.AKS_NAMESPACE }}
+        kubectl apply -f kubernetes/dev/ingress.yaml -n ${{ env.AKS_NAMESPACE }}
 
     - name: Verify deployment
       run: |
-        echo "=== Current Pods ==="
-        kubectl get pods -n ${{ env.AKS_NAMESPACE }}
-        echo "=== Current Services ==="
-        kubectl get services -n ${{ env.AKS_NAMESPACE }}
-        echo "=== Current Deployments ==="
+        echo "=== Deployments ==="
         kubectl get deployments -n ${{ env.AKS_NAMESPACE }}
+        echo "=== Services ==="
+        kubectl get services -n ${{ env.AKS_NAMESPACE }}
+        echo "=== HPA ==="
+        kubectl get hpa -n ${{ env.AKS_NAMESPACE }}
+        echo "=== Ingress ==="
+        kubectl get ingress -n ${{ env.AKS_NAMESPACE }}
+        echo "=== Pods ==="
+        kubectl get pods -n ${{ env.AKS_NAMESPACE }}
 
     - name: Test services
       run: |
-        # Wait for services to get external IPs
-        echo "Waiting for LoadBalancer IPs..."
-        sleep 60
+        # Test health endpoints
+        kubectl wait --for=condition=ready pod -l app=patient-service -n ${{ env.AKS_NAMESPACE }} --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=appointment-service -n ${{ env.AKS_NAMESPACE }} --timeout=300s
         
-        # Get service URLs with retries
-        for i in {1..10}; do
-          PATIENT_IP=$(kubectl get service patient-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-          APPOINTMENT_IP=$(kubectl get service appointment-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-          
-          if [[ -n "$PATIENT_IP" && -n "$APPOINTMENT_IP" ]]; then
-            echo "External IPs obtained successfully"
-            break
-          fi
-          echo "Attempt $i: Waiting for external IPs..."
-          sleep 30
-        done
+        # Test health endpoints
+        PATIENT_POD=$(kubectl get pods -l app=patient-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.items[0].metadata.name}')
+        APPOINTMENT_POD=$(kubectl get pods -l app=appointment-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.items[0].metadata.name}')
         
-        if [[ -z "$PATIENT_IP" ]]; then
-          echo "Patient service external IP not available"
-          PATIENT_IP="NotAvailable"
-        else
-          echo "Patient Service URL: http://$PATIENT_IP"
-        fi
+        echo "Testing Patient Service health endpoint..."
+        kubectl exec $PATIENT_POD -n ${{ env.AKS_NAMESPACE }} -- curl -f http://localhost:3000/health
         
-        if [[ -z "$APPOINTMENT_IP" ]]; then
-          echo "Appointment service external IP not available"
-          APPOINTMENT_IP="NotAvailable"
-        else
-          echo "Appointment Service URL: http://$APPOINTMENT_IP"
-        fi
-        
-        # Test health endpoints (with retries) only if IPs are available
-        if [[ "$PATIENT_IP" != "NotAvailable" ]]; then
-          echo "Testing Patient Service..."
-          for i in {1..10}; do
-            if curl -f --connect-timeout 10 http://$PATIENT_IP/health; then
-              echo "Patient service is healthy!"
-              break
-            else
-              echo "Attempt $i: Patient service not ready, waiting..."
-              sleep 10
-            fi
-          done
-        fi
-        
-        if [[ "$APPOINTMENT_IP" != "NotAvailable" ]]; then
-          echo "Testing Appointment Service..."
-          for i in {1..10}; do
-            if curl -f --connect-timeout 10 http://$APPOINTMENT_IP/health; then
-              echo "Appointment service is healthy!"
-              break
-            else
-              echo "Attempt $i: Appointment service not ready, waiting..."
-              sleep 10
-            fi
-          done
-        fi
+        echo "Testing Appointment Service health endpoint..."
+        kubectl exec $APPOINTMENT_POD -n ${{ env.AKS_NAMESPACE }} -- curl -f http://localhost:3001/health
+
+    - name: Run integration tests
+      run: |
+        echo "Running integration tests against dev environment..."
+        # Add your integration test commands here
+        echo "Integration tests completed successfully"

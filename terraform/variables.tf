@@ -1,13 +1,13 @@
 variable "resource_group_name" {
   description = "Name of the resource group"
   type        = string
-  default     = "healthcare-app-rg"
+  default     = "healthcare-app-rg-dev"
 }
 
 variable "acr_resource_group_name" {
   description = "Name of the resource group where ACR exists"
   type        = string
-  default     = "healthcare-app-rg"  # Change this to your ACR's actual resource group
+  default     = "terraform-rg-dev"
 }
 
 variable "location" {
@@ -19,7 +19,7 @@ variable "location" {
 variable "aks_cluster_name" {
   description = "Name of the AKS cluster"
   type        = string
-  default     = "healthcare-aks-cluster"
+  default     = "healthcare-aks-cluster-dev"
 }
 
 variable "acr_name" {
@@ -62,4 +62,22 @@ variable "tenant_id" {
   description = "Azure Tenant ID"
   type        = string
   sensitive   = true
+}
+
+variable "cluster_version" {
+  description = "AKS cluster version"
+  type        = string
+  default     = "1.27"
+}
+
+variable "node_count" {
+  description = "Number of AKS nodes"
+  type        = number
+  default     = 2
+}
+
+variable "node_vm_size" {
+  description = "VM size for AKS nodes"
+  type        = string
+  default     = "Standard_B2s"
 }

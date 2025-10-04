@@ -4,6 +4,8 @@ resource "azurerm_resource_group" "main" {
   tags = {
     environment = var.environment
     project     = "healthcare-app"
+    branch      = "dev"
+    version     = "2.0.0-dev"
   }
 }
 
@@ -35,12 +37,13 @@ resource "azurerm_kubernetes_cluster" "aks" {
   name                = var.aks_cluster_name
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
-  dns_prefix          = "healthcare-aks"
+  dns_prefix          = "healthcare-aks-dev"
+  kubernetes_version  = var.cluster_version
 
   default_node_pool {
     name       = "default"
-    node_count = 2
-    vm_size    = "Standard_B2s"
+    node_count = var.node_count
+    vm_size    = var.node_vm_size
   }
 
   identity {
@@ -49,6 +52,8 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
   tags = {
     environment = var.environment
+    branch      = "dev"
+    version     = "2.0.0-dev"
   }
 }
 
