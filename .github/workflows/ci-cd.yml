@@ -41,6 +41,7 @@ jobs:
       run: |
         cd src/patient-service && npm test
         cd ../appointment-service && npm test
+        
 
     - name: SonarCloud Scan
       uses: SonarSource/sonarcloud-github-action@v2
