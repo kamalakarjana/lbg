@@ -57,7 +57,7 @@ jobs:
       with:
         args: >
           -Dsonar.organization=kamalakarjana
-          -Dsonar.projectKey=lbg
+          -Dsonar.projectKey=LBG
           -Dsonar.projectName=lbg
           -Dsonar.projectVersion=2.1.0
           -Dsonar.sources=src/
