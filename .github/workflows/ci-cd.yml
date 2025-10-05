@@ -46,12 +46,13 @@ jobs:
       uses: SonarSource/sonarcloud-github-action@v2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}  # Use the token SonarCloud provided
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       with:
         args: >
           -Dsonar.organization=kamalakarjana
           -Dsonar.projectKey=kamalakarjana_lbg
           -Dsonar.projectName=lbg
+          -X  # Debug logs
 
   # Terraform Infrastructure as Code
   terraform:
