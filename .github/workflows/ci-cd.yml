@@ -13,9 +13,9 @@ env:
   AKS_NAMESPACE: 'healthcare-ns-dev'
 
 jobs:
-  # Code Quality & Tests (Replaces SonarCloud)
+  # Code Quality & Tests with SonarCloud
   code-quality-scan:
-    name: 'Code Quality & Tests'
+    name: 'Code Quality & Tests with SonarCloud'
     runs-on: ubuntu-latest
     
     steps:
@@ -52,25 +52,31 @@ jobs:
         echo "ESLint analysis for appointment-service:"
         cd ../appointment-service && npm run lint || echo "ESLint completed with warnings"
 
-    - name: Generate coverage summary
+    - name: Verify coverage files exist
       run: |
-        echo "=== TEST COVERAGE SUMMARY ==="
-        echo "Patient Service Coverage:"
-        if [ -f "src/patient-service/coverage/coverage-summary.json" ]; then
-          cat src/patient-service/coverage/coverage-summary.json | jq '.total' || echo "Could not parse coverage summary"
-        else
-          echo "Coverage file not found for patient-service"
-        fi
-        
-        echo "Appointment Service Coverage:"
-        if [ -f "src/appointment-service/coverage/coverage-summary.json" ]; then
-          cat src/appointment-service/coverage/coverage-summary.json | jq '.total' || echo "Could not parse coverage summary"
-        else
-          echo "Coverage file not found for appointment-service"
-        fi
+        echo "Checking coverage files..."
+        find . -name "lcov.info" -o -name "coverage" | head -10
+
+    - name: SonarCloud Scan
+      uses: SonarSource/sonarcloud-github-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      with:
+        args: >
+          -Dsonar.organization=kamalakarjana
+          -Dsonar.projectKey=LBG
+          -Dsonar.projectName=healthcare-app
+          -Dsonar.projectVersion=2.1.0
+          -Dsonar.sources=src/
+          -Dsonar.tests=src/
+          -Dsonar.javascript.lcov.reportPaths=src/patient-service/coverage/lcov.info,src/appointment-service/coverage/lcov.info
+          -Dsonar.coverage.exclusions=**/node_modules/**,**/*.test.js
+          -Dsonar.qualitygate.wait=true
+          -Dsonar.scm.disabled=true
 
     - name: Upload coverage reports
-      uses: actions/upload-artifact@v4  # CHANGED FROM v3 to v4
+      uses: actions/upload-artifact@v4
       with:
         name: coverage-reports
         path: |
@@ -106,10 +112,16 @@ jobs:
         echo "Running security audit for appointment-service..."
         cd ../appointment-service && npm audit --audit-level=high || true
 
-    - name: Run CodeQL Analysis
-      uses: github/codeql-action/analyze@v3
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
       with:
         languages: javascript
+
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v3
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
 
   # Terraform Infrastructure as Code
   terraform:
@@ -249,15 +261,6 @@ jobs:
         docker push ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ matrix.service }}:${{ github.sha }}
         docker push ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ matrix.service }}:dev
 
-    - name: Upload Docker build logs
-      uses: actions/upload-artifact@v4  # CHANGED FROM v3 to v4
-      if: always()
-      with:
-        name: docker-build-logs-${{ matrix.service }}
-        path: |
-          docker-build-*.log
-        retention-days: 7
-
   # ACR Vulnerability Scan Check
   acr-scan-check:
     name: 'ACR Vulnerability Scan Check'
@@ -384,15 +387,6 @@ jobs:
         
         echo "Integration tests completed successfully"
 
-    - name: Upload deployment logs
-      uses: actions/upload-artifact@v4  # CHANGED FROM v3 to v4
-      if: always()
-      with:
-        name: deployment-logs
-        path: |
-          kubectl-*.log
-        retention-days: 7
-
   # Post-deployment cleanup and notifications
   cleanup-notify:
     name: 'Cleanup and Notify'
@@ -409,17 +403,8 @@ jobs:
           echo "Services deployed:"
           echo "- Patient Service: ${{ env.AZURE_CONTAINER_REGISTRY }}/patient-service:dev"
           echo "- Appointment Service: ${{ env.AZURE_CONTAINER_REGISTRY }}/appointment-service:dev"
-          echo "Code Quality Reports available in artifacts"
+          echo "SonarCloud Analysis: https://sonarcloud.io/project/overview?id=LBG"
         else
           echo "❌ Deployment to AKS dev environment failed!"
           echo "Check the pipeline logs for details."
         fi
-
-    - name: Upload pipeline summary
-      uses: actions/upload-artifact@v4  # CHANGED FROM v3 to v4
-      if: always()
-      with:
-        name: pipeline-summary
-        path: |
-          summary.md
-        retention-days: 7
