@@ -48,11 +48,12 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       with:
-        args: >
-          -Dsonar.organization=kamalakarjana
-          -Dsonar.projectKey=kamalakarjana_lbg
-          -Dsonar.projectName=lbg
-          
+      args: >
+        -Dsonar.organization=kamalakarjana
+        -Dsonar.projectKey=kamalakarjana_lbg
+        -Dsonar.projectName=lbg
+        -X  # This will show detailed logs
+
   # Terraform Infrastructure as Code
   terraform:
     name: 'Terraform'
