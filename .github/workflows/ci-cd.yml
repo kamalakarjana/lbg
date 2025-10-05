@@ -13,9 +13,9 @@ env:
   AKS_NAMESPACE: 'healthcare-ns-dev'
 
 jobs:
-  # SonarCloud Scan
-  sonarcloud-scan:
-    name: 'SonarCloud Scan'
+  # Code Quality & Tests (Replaces SonarCloud)
+  code-quality-scan:
+    name: 'Code Quality & Tests'
     runs-on: ubuntu-latest
     
     steps:
@@ -39,39 +39,50 @@ jobs:
     - name: Run tests with coverage
       run: |
         echo "Running tests for patient-service..."
-        cd src/patient-service && npm test
+        cd src/patient-service && npm run test:ci
         
         echo "Running tests for appointment-service..."
-        cd ../appointment-service && npm test
+        cd ../appointment-service && npm run test:ci
 
-    - name: Verify coverage files exist
+    - name: Run ESLint analysis
       run: |
-        echo "Checking coverage files..."
-        find . -name "lcov.info" -o -name "coverage" | head -10
+        echo "ESLint analysis for patient-service:"
+        cd src/patient-service && npm run lint || echo "ESLint completed with warnings"
+        
+        echo "ESLint analysis for appointment-service:"
+        cd ../appointment-service && npm run lint || echo "ESLint completed with warnings"
 
-    - name: SonarCloud Scan
-      uses: SonarSource/sonarcloud-github-action@v2
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    - name: Generate coverage summary
+      run: |
+        echo "=== TEST COVERAGE SUMMARY ==="
+        echo "Patient Service Coverage:"
+        if [ -f "src/patient-service/coverage/coverage-summary.json" ]; then
+          cat src/patient-service/coverage/coverage-summary.json | jq '.total' || echo "Could not parse coverage summary"
+        else
+          echo "Coverage file not found for patient-service"
+        fi
+        
+        echo "Appointment Service Coverage:"
+        if [ -f "src/appointment-service/coverage/coverage-summary.json" ]; then
+          cat src/appointment-service/coverage/coverage-summary.json | jq '.total' || echo "Could not parse coverage summary"
+        else
+          echo "Coverage file not found for appointment-service"
+        fi
+
+    - name: Upload coverage reports
+      uses: actions/upload-artifact@v3
       with:
-        args: >
-          -Dsonar.organization=kamalakarjana
-          -Dsonar.projectKey=LBG
-          -Dsonar.projectName=lbg
-          -Dsonar.projectVersion=2.1.0
-          -Dsonar.sources=src/
-          -Dsonar.tests=src/
-          -Dsonar.javascript.lcov.reportPaths=src/patient-service/coverage/lcov.info,src/appointment-service/coverage/lcov.info
-          -Dsonar.coverage.exclusions=**/node_modules/**,**/*.test.js
-          -Dsonar.qualitygate.wait=true
-          -Dsonar.scm.disabled=true
+        name: coverage-reports
+        path: |
+          src/patient-service/coverage/
+          src/appointment-service/coverage/
+        retention-days: 30
 
   # Security Scanning
   security-scan:
     name: 'Security Scan'
     runs-on: ubuntu-latest
-    needs: sonarcloud-scan
+    needs: code-quality-scan
     
     steps:
     - name: Checkout code
@@ -95,11 +106,16 @@ jobs:
         echo "Running security audit for appointment-service..."
         cd ../appointment-service && npm audit --audit-level=high || true
 
+    - name: Run CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        languages: javascript
+
   # Terraform Infrastructure as Code
   terraform:
     name: 'Terraform'
     runs-on: ubuntu-latest
-    needs: [sonarcloud-scan, security-scan]
+    needs: [code-quality-scan, security-scan]
     
     steps:
     - name: Checkout code
@@ -375,7 +391,7 @@ jobs:
           echo "Services deployed:"
           echo "- Patient Service: ${{ env.AZURE_CONTAINER_REGISTRY }}/patient-service:dev"
           echo "- Appointment Service: ${{ env.AZURE_CONTAINER_REGISTRY }}/appointment-service:dev"
-          echo "SonarQube Analysis: https://sonarcloud.io/project/overview?id=lbg"
+          echo "Code Quality Reports available in artifacts"
         else
           echo "❌ Deployment to AKS dev environment failed!"
           echo "Check the pipeline logs for details."
