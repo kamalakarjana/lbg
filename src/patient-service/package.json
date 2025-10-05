@@ -6,9 +6,10 @@
   "scripts": {
     "start": "node patient-service.js",
     "dev": "nodemon patient-service.js",
-    "test": "jest --coverage --verbose --passWithNoTests",
+    "test": "jest --coverage --verbose --passWithNoTests --watchAll=false",
     "test:watch": "jest --watch",
     "test:dev": "jest --coverage --verbose --watchAll",
+    "test:ci": "jest --coverage --verbose --ci --reporters=default --reporters=jest-junit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "security:audit": "npm audit",
@@ -20,7 +21,8 @@
   "devDependencies": {
     "jest": "^29.0.0",
     "supertest": "^6.0.0",
-    "eslint": "^8.0.0"
+    "eslint": "^8.0.0",
+    "nodemon": "^3.0.1"
   },
   "engines": {
     "node": ">=14.0.0"
