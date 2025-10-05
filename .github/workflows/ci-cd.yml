@@ -94,9 +94,10 @@ jobs:
           -Dsonar.qualitygate.wait=true
           -Dsonar.scm.disabled=true
           -Dsonar.analysis.automatic=false
-          -Dsonar.exclusions=**/Dockerfile,**/node_modules/**,**/coverage/**,**/*.yaml,**/*.yml,**/*.json,**/*.md,**/*.lock,terraform/**,kubernetes/**
-          -Dsonar.test.exclusions=**/Dockerfile,**/node_modules/**,**/coverage/**,**/*.yaml,**/*.yml,**/*.json,**/*.md,**/*.lock,terraform/**,kubernetes/**
-
+          -Dsonar.exclusions=**/Dockerfile,**/node_modules/**,**/coverage/**,**/*.yaml,**/*.yml,**/*.json,**/*.md,**/*.lock,terraform/**,kubernetes/**,**/jest.config.js,**/package.json,**/package-lock.json
+          -Dsonar.test.exclusions=**/Dockerfile,**/node_modules/**,**/coverage/**,**/*.yaml,**/*.yml,**/*.json,**/*.md,**/*.lock,terraform/**,kubernetes/**,**/jest.config.js,**/package.json,**/package-lock.json
+          -Dsonar.test.inclusions=**/*.test.js
+          
     - name: Upload coverage reports
       uses: actions/upload-artifact@v4
       with:
