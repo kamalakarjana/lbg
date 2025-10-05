@@ -11,7 +11,7 @@ env:
   RESOURCE_GROUP: 'healthcare-app-rg-dev'
   AKS_CLUSTER_NAME: 'healthcare-aks-cluster-dev'
   AKS_NAMESPACE: 'healthcare-ns-dev'
-  SONAR_PROJECT_KEY: 'healthcare-app-dev'
+  # REMOVED: SONAR_PROJECT_KEY: 'healthcare-app-dev' - This was causing conflicts
 
 jobs:
   # SonarCloud Scan
@@ -46,9 +46,12 @@ jobs:
       uses: SonarSource/sonarcloud-github-action@v2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}  # Must be: 7debe334c6cce72d6fb80caa98d20c1313280dab
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}  # Must be: 7debe334c6cce72d6fb89caa98d26c1313280dab
       with:
-        args: -Dsonar.organization=kamalakarjana -Dsonar.projectKey=kamalakarjana_lbg -Dsonar.projectName=lbg
+        args: >
+          -Dsonar.organization=kamalakarjana
+          -Dsonar.projectKey=healthcare-app-dev
+          -Dsonar.projectName=lbg
 
   # Terraform Infrastructure as Code
   terraform:
