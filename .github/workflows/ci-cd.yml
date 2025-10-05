@@ -50,9 +50,9 @@ jobs:
       with:
         args: >
           -Dsonar.organization=kamalakarjana
-          -Dsonar.projectKey=healthcare-app-dev
-          -Dsonar.projectName=healthcare-app-dev
-
+          -Dsonar.projectKey=kamalakarjana_lbg
+          -Dsonar.projectName=lbg
+          
   # Terraform Infrastructure as Code
   terraform:
     name: 'Terraform'
