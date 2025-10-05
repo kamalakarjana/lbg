@@ -46,10 +46,9 @@ jobs:
       uses: SonarSource/sonarcloud-github-action@v2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        # REMOVE SONAR_PROJECT_KEY from here
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}  # Must be: 7debe334c6cce72d6fb80caa98d20c1313280dab
       with:
-        args: -Dsonar.organization=kamalakarjana -Dsonar.projectKey=kamalakarjana_lbg -Dsonar.projectName=lbg -X
+        args: -Dsonar.organization=kamalakarjana -Dsonar.projectKey=kamalakarjana_lbg -Dsonar.projectName=lbg
 
   # Terraform Infrastructure as Code
   terraform:
