@@ -70,7 +70,7 @@ jobs:
         fi
 
     - name: Upload coverage reports
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4  # CHANGED FROM v3 to v4
       with:
         name: coverage-reports
         path: |
@@ -249,6 +249,15 @@ jobs:
         docker push ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ matrix.service }}:${{ github.sha }}
         docker push ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ matrix.service }}:dev
 
+    - name: Upload Docker build logs
+      uses: actions/upload-artifact@v4  # CHANGED FROM v3 to v4
+      if: always()
+      with:
+        name: docker-build-logs-${{ matrix.service }}
+        path: |
+          docker-build-*.log
+        retention-days: 7
+
   # ACR Vulnerability Scan Check
   acr-scan-check:
     name: 'ACR Vulnerability Scan Check'
@@ -375,6 +384,15 @@ jobs:
         
         echo "Integration tests completed successfully"
 
+    - name: Upload deployment logs
+      uses: actions/upload-artifact@v4  # CHANGED FROM v3 to v4
+      if: always()
+      with:
+        name: deployment-logs
+        path: |
+          kubectl-*.log
+        retention-days: 7
+
   # Post-deployment cleanup and notifications
   cleanup-notify:
     name: 'Cleanup and Notify'
@@ -396,3 +414,12 @@ jobs:
           echo "❌ Deployment to AKS dev environment failed!"
           echo "Check the pipeline logs for details."
         fi
+
+    - name: Upload pipeline summary
+      uses: actions/upload-artifact@v4  # CHANGED FROM v3 to v4
+      if: always()
+      with:
+        name: pipeline-summary
+        path: |
+          summary.md
+        retention-days: 7
