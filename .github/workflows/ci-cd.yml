@@ -39,10 +39,10 @@ jobs:
     - name: Run tests with coverage
       run: |
         echo "Running tests for patient-service..."
-        cd src/patient-service && npm run test:ci
+        cd src/patient-service && npm test -- --coverage --watchAll=false --detectOpenHandles --forceExit
         
         echo "Running tests for appointment-service..."
-        cd ../appointment-service && npm run test:ci
+        cd ../appointment-service && npm test -- --coverage --watchAll=false --detectOpenHandles --forceExit
 
     - name: Run ESLint analysis
       run: |
@@ -55,7 +55,8 @@ jobs:
     - name: Verify coverage files exist
       run: |
         echo "Checking coverage files..."
-        find . -name "lcov.info" -o -name "coverage" | head -10
+        ls -la src/patient-service/coverage/lcov.info || echo "Patient service coverage not found"
+        ls -la src/appointment-service/coverage/lcov.info || echo "Appointment service coverage not found"
 
     - name: SonarCloud Scan
       uses: SonarSource/sonarcloud-github-action@v2
@@ -74,6 +75,7 @@ jobs:
           -Dsonar.coverage.exclusions=**/node_modules/**,**/*.test.js
           -Dsonar.qualitygate.wait=true
           -Dsonar.scm.disabled=true
+          -Dsonar.analysis.automatic=false
 
     - name: Upload coverage reports
       uses: actions/upload-artifact@v4
@@ -403,7 +405,7 @@ jobs:
           echo "Services deployed:"
           echo "- Patient Service: ${{ env.AZURE_CONTAINER_REGISTRY }}/patient-service:dev"
           echo "- Appointment Service: ${{ env.AZURE_CONTAINER_REGISTRY }}/appointment-service:dev"
-          echo "SonarCloud Analysis: https://sonarcloud.io/project/overview?id=LBG"
+          echo "SonarCloud Analysis: https://sonarcloud.io/project/overview?id=kamalakarjana_lbg"
         else
           echo "❌ Deployment to AKS dev environment failed!"
           echo "Check the pipeline logs for details."
