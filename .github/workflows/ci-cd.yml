@@ -52,31 +52,36 @@ jobs:
         echo "ESLint analysis for appointment-service:"
         cd ../appointment-service && npm run lint || echo "ESLint completed with warnings"
 
-    - name: Verify coverage files exist
+    - name: Debug - Check coverage files in detail
       run: |
-        echo "Checking coverage files..."
-        ls -la src/patient-service/coverage/lcov.info || echo "Patient service coverage not found"
-        ls -la src/appointment-service/coverage/lcov.info || echo "Appointment service coverage not found"
+        echo "=== Current directory structure ==="
+        find . -name "lcov.info" -type f 2>/dev/null | head -20
+        echo "=== Patient service coverage ==="
+        ls -la src/patient-service/coverage/ 2>/dev/null || echo "No patient coverage directory"
+        echo "=== Appointment service coverage ==="
+        ls -la src/appointment-service/coverage/ 2>/dev/null || echo "No appointment coverage directory"
+        
+        # Check if lcov files actually exist and have content
+        if [ -f "src/patient-service/coverage/lcov.info" ]; then
+          echo "Patient service lcov.info exists, first few lines:"
+          head -5 src/patient-service/coverage/lcov.info
+        else
+          echo "Patient service lcov.info NOT FOUND"
+        fi
+        
+        if [ -f "src/appointment-service/coverage/lcov.info" ]; then
+          echo "Appointment service lcov.info exists, first few lines:"
+          head -5 src/appointment-service/coverage/lcov.info
+        else
+          echo "Appointment service lcov.info NOT FOUND"
+        fi
 
     - name: SonarCloud Scan
       uses: SonarSource/sonarcloud-github-action@v2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      with:
-        args: >
-          -Dsonar.organization=kamalakarjana
-          -Dsonar.projectKey=kamalakarjana_lbg
-          -Dsonar.projectName=lbg
-          -Dsonar.projectVersion=2.1.0
-          -Dsonar.sources=src/
-          -Dsonar.tests=src/
-          -Dsonar.javascript.lcov.reportPaths=src/patient-service/coverage/lcov.info,src/appointment-service/coverage/lcov.info
-          -Dsonar.coverage.exclusions=**/node_modules/**,**/*.test.js
-          -Dsonar.qualitygate.wait=true
-          -Dsonar.scm.disabled=true
-          -Dsonar.analysis.automatic=false
-
+        
     - name: Upload coverage reports
       uses: actions/upload-artifact@v4
       with:
