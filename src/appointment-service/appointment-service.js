@@ -4,7 +4,7 @@ const port = process.env.PORT || 3001;
 
 app.use(express.json());
 
-// In-memory data store (replace with a database in a real application)
+// In-memory data store
 let appointments = [
   { id: '1', patientId: '1', date: '2023-06-15', time: '10:00', doctor: 'Dr. Smith' },
   { id: '2', patientId: '2', date: '2023-06-16', time: '14:30', doctor: 'Dr. Johnson' }
@@ -74,20 +74,11 @@ app.get('/appointments/patient/:patientId', (req, res) => {
   }
 });
 
-// Only start the server if this file is run directly (not when required by tests)
+// Only start server if not in test mode
 if (require.main === module) {
-  const server = app.listen(port, '0.0.0.0', () => {
+  app.listen(port, '0.0.0.0', () => {
     console.log(`Appointment service listening at http://0.0.0.0:${port}`);
-  });
-
-  // Graceful shutdown
-  process.on('SIGTERM', () => {
-    console.log('SIGTERM signal received: closing HTTP server');
-    server.close(() => {
-      console.log('HTTP server closed');
-    });
   });
 }
 
-// Export the app for testing
 module.exports = app;

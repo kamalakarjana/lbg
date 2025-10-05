@@ -6,10 +6,10 @@
   "scripts": {
     "start": "node appointment-service.js",
     "dev": "nodemon appointment-service.js",
-    "test": "jest --coverage --verbose --passWithNoTests --watchAll=false",
+    "test": "jest --coverage --verbose --watchAll=false --detectOpenHandles --forceExit",
     "test:watch": "jest --watch",
     "test:dev": "jest --coverage --verbose --watchAll",
-    "test:ci": "jest --coverage --verbose --ci",
+    "test:ci": "jest --coverage --verbose --ci --detectOpenHandles --forceExit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "security:audit": "npm audit",
