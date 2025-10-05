@@ -50,7 +50,7 @@ jobs:
       with:
         args: >
           -Dsonar.organization=kamalakarjana
-          -Dsonar.projectKey=kamalakarjana_lbg
+          -Dsonar.projectKey=healthcare-app-dev
           -Dsonar.projectName=lbg
           -X  # This will show detailed logs
 
