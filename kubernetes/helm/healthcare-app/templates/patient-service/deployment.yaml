@@ -11,12 +11,10 @@ spec:
   selector:
     matchLabels:
       app: patient-service
-      version: {{ .Values.global.tag | default "latest" }}
   template:
     metadata:
       labels:
         app: patient-service
-        version: {{ .Values.global.tag | default "latest" }}
         {{- include "patient-service.selectorLabels" . | nindent 8 }}
     spec:
       containers:
@@ -32,10 +30,7 @@ spec:
             - name: PORT
               value: "{{ .Values.patientService.service.targetPort }}"
             - name: DB_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "healthcare-app.fullname" . }}-config
-                  key: patient-service-config
+              value: "patient-db-dev"
           {{- with .Values.patientService.livenessProbe }}
           livenessProbe:
             httpGet:
@@ -54,5 +49,4 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.patientService.resources | nindent 12 }}
-      restartPolicy: Always
 {{- end }}

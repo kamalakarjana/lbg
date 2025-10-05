@@ -8,13 +8,7 @@ metadata:
     {{- include "healthcare-app.labels" . | nindent 4 }}
 data:
   {{- range $key, $value := .Values.configMaps }}
-  {{- if kindIs "map" $value }}
   {{ $key }}: |
-    {{- range $configKey, $configValue := $value }}
-    {{ $configKey }}={{ $configValue }}
-    {{- end }}
-  {{- else }}
-  {{ $key }}: {{ $value | quote }}
-  {{- end }}
+    {{- $value | nindent 4 }}
   {{- end }}
 {{- end }}

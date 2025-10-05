@@ -15,5 +15,4 @@ spec:
       name: http
   selector:
     app: appointment-service
-    version: {{ .Values.global.tag | default "latest" }}
 {{- end }}

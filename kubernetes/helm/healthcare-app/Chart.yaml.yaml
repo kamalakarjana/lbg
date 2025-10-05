@@ -4,5 +4,3 @@ description: A Helm chart for Healthcare Application with Patient and Appointmen
 type: application
 version: 0.1.0
 appVersion: "2.1.0"
-
-dependencies: []

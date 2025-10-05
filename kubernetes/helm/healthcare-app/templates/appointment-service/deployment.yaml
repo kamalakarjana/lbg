@@ -11,12 +11,10 @@ spec:
   selector:
     matchLabels:
       app: appointment-service
-      version: {{ .Values.global.tag | default "latest" }}
   template:
     metadata:
       labels:
         app: appointment-service
-        version: {{ .Values.global.tag | default "latest" }}
         {{- include "appointment-service.selectorLabels" . | nindent 8 }}
     spec:
       containers:
@@ -32,10 +30,7 @@ spec:
             - name: PORT
               value: "{{ .Values.appointmentService.service.targetPort }}"
             - name: DB_HOST
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "healthcare-app.fullname" . }}-config
-                  key: appointment-service-config
+              value: "appointment-db-dev"
           {{- with .Values.appointmentService.livenessProbe }}
           livenessProbe:
             httpGet:
@@ -54,5 +49,4 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.appointmentService.resources | nindent 12 }}
-      restartPolicy: Always
 {{- end }}
