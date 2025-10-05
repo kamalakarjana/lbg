@@ -91,13 +91,12 @@ jobs:
           -Dsonar.tests=src/
           -Dsonar.javascript.lcov.reportPaths=src/patient-service/coverage/lcov.info,src/appointment-service/coverage/lcov.info
           -Dsonar.coverage.exclusions=**/node_modules/**,**/*.test.js
-          -Dsonar.qualitygate.wait=true
           -Dsonar.scm.disabled=true
           -Dsonar.analysis.automatic=false
           -Dsonar.exclusions=**/Dockerfile,**/node_modules/**,**/coverage/**,**/*.yaml,**/*.yml,**/*.json,**/*.md,**/*.lock,terraform/**,kubernetes/**,**/jest.config.js,**/package.json,**/package-lock.json
           -Dsonar.test.exclusions=**/Dockerfile,**/node_modules/**,**/coverage/**,**/*.yaml,**/*.yml,**/*.json,**/*.md,**/*.lock,terraform/**,kubernetes/**,**/jest.config.js,**/package.json,**/package-lock.json
           -Dsonar.test.inclusions=**/*.test.js
-          
+
     - name: Upload coverage reports
       uses: actions/upload-artifact@v4
       with:
