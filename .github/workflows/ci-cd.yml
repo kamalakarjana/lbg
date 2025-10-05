@@ -39,10 +39,10 @@ jobs:
     - name: Run tests with coverage
       run: |
         echo "Running tests for patient-service..."
-        cd src/patient-service && npm run test:ci
+        cd src/patient-service && npm test -- --coverage --watchAll=false
         
         echo "Running tests for appointment-service..."
-        cd ../appointment-service && npm run test:ci
+        cd ../appointment-service && npm test -- --coverage --watchAll=false
 
     - name: Verify coverage files exist
       run: |
