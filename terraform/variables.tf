@@ -1,37 +1,31 @@
 variable "resource_group_name" {
   description = "Name of the resource group"
   type        = string
-  default     = "healthcare-app-rg-dev"
-}
-
-variable "acr_resource_group_name" {
-  description = "Name of the resource group where ACR exists"
-  type        = string
-  default     = "terraform-rg-dev"
+  default     = "rg-lbg-demo-dev"  # Updated for demo
 }
 
 variable "location" {
   description = "Azure region"
   type        = string
-  default     = "East US"
+  default     = "eastus"
 }
 
 variable "aks_cluster_name" {
   description = "Name of the AKS cluster"
   type        = string
-  default     = "healthcare-aks-cluster-dev"
+  default     = "aks-lbg-demo-dev"  # Updated for demo
 }
 
 variable "acr_name" {
   description = "Name of Azure Container Registry"
   type        = string
-  default     = "kamalj2kkkk"
+  default     = "acrlbgdemodev"  # Updated for demo
 }
 
 variable "use_existing_acr" {
   description = "Whether to use existing ACR or create new one"
   type        = bool
-  default     = true
+  default     = false  # Changed to false to create new ACR
 }
 
 variable "environment" {

@@ -1,0 +1,20 @@
+{{- if .Values.configMaps }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "healthcare-app.fullname" . }}-config
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "healthcare-app.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.configMaps }}
+  {{- if kindIs "map" $value }}
+  {{ $key }}: |
+    {{- range $configKey, $configValue := $value }}
+    {{ $configKey }}={{ $configValue }}
+    {{- end }}
+  {{- else }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  {{- end }}
+{{- end }}

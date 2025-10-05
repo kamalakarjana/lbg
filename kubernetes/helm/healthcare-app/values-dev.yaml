@@ -1,0 +1,102 @@
+# Default values for healthcare-app
+global:
+  imageRegistry: ""
+  tag: "latest"
+  environment: "dev"
+  namespace: "healthcare-ns-dev"
+
+patientService:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: "patient-service"
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 3000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 3000
+    initialDelaySeconds: 5
+    periodSeconds: 5
+
+appointmentService:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: "appointment-service"
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3001
+    targetPort: 3001
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 3001
+    initialDelaySeconds: 30
+    periodSeconds: 10
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 3001
+    initialDelaySeconds: 5
+    periodSeconds: 5
+
+ingress:
+  enabled: true
+  className: "azure-application-gateway"
+  annotations:
+    appgw.ingress.kubernetes.io/ssl-redirect: "true"
+    kubernetes.io/ingress.class: azure-application-gateway
+  hosts:
+    - host: healthcare-dev.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+        - path: /patient
+          pathType: Prefix
+        - path: /appointment
+          pathType: Prefix
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+configMaps:
+  patient-service-config:
+    NODE_ENV: "production"
+    PORT: "3000"
+    DB_HOST: "patient-db-dev"
+  appointment-service-config:
+    NODE_ENV: "production"
+    PORT: "3001"
+    DB_HOST: "appointment-db-dev"
+
+secrets: {}

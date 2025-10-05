@@ -1,0 +1,58 @@
+{{- if .Values.patientService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: patient-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "patient-service.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.patientService.replicaCount }}
+  selector:
+    matchLabels:
+      app: patient-service
+      version: {{ .Values.global.tag | default "latest" }}
+  template:
+    metadata:
+      labels:
+        app: patient-service
+        version: {{ .Values.global.tag | default "latest" }}
+        {{- include "patient-service.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: patient-service
+          image: {{ include "patient-service.image" . }}
+          imagePullPolicy: {{ .Values.patientService.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.patientService.service.targetPort }}
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "{{ .Values.patientService.service.targetPort }}"
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "healthcare-app.fullname" . }}-config
+                  key: patient-service-config
+          {{- with .Values.patientService.livenessProbe }}
+          livenessProbe:
+            httpGet:
+              path: {{ .httpGet.path }}
+              port: {{ .httpGet.port }}
+            initialDelaySeconds: {{ .initialDelaySeconds }}
+            periodSeconds: {{ .periodSeconds }}
+          {{- end }}
+          {{- with .Values.patientService.readinessProbe }}
+          readinessProbe:
+            httpGet:
+              path: {{ .httpGet.path }}
+              port: {{ .httpGet.port }}
+            initialDelaySeconds: {{ .initialDelaySeconds }}
+            periodSeconds: {{ .periodSeconds }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.patientService.resources | nindent 12 }}
+      restartPolicy: Always
+{{- end }}

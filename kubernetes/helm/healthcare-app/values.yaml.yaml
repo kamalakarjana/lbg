@@ -1,0 +1,36 @@
+# Development environment values
+global:
+  environment: "dev"
+  namespace: "healthcare-ns-dev"
+
+patientService:
+  replicaCount: 2
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+appointmentService:
+  replicaCount: 2
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+
+ingress:
+  hosts:
+    - host: healthcare-dev.example.com
+      paths:
+        - path: /
+          pathType: Prefix
