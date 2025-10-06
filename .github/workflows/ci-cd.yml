@@ -635,8 +635,8 @@ jobs:
     - name: Deploy using Helm with minimal resources
       run: |
         cd ${{ env.HELM_CHART_DIR }}
-        
-        # Install or upgrade the release with minimal resources
+    
+        # Install without waiting first
         helm upgrade --install ${{ env.HELM_RELEASE_NAME }} ./healthcare-app \
           --namespace ${{ env.AKS_NAMESPACE }} \
           --values ../../helm-values-${{ github.sha }}.yaml \
@@ -644,9 +644,11 @@ jobs:
           --set global.namespace=${{ env.AKS_NAMESPACE }} \
           --set global.environment=dev \
           --set imagePullSecrets[0].name=acr-credentials \
-          --timeout 5m \
-          --wait \
-          --atomic
+          --timeout 10m
+    
+        # Then wait separately
+        echo "Waiting for deployment to stabilize..."
+        sleep 30
 
     - name: Wait for deployments to be ready
       run: |
