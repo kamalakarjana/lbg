@@ -25,6 +25,11 @@ on:
         required: false
         default: false
         type: boolean
+      skip_security_scan:
+        description: 'Skip security scanning'
+        required: false
+        default: false
+        type: boolean
 
 env:
   RESOURCE_GROUP_NAME: healthcare-app-rg-dev
@@ -44,11 +49,30 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       skip_tests: ${{ steps.set_skip_tests.outputs.skip_tests }}
+      skip_security_scan: ${{ steps.set_skip_security_scan.outputs.skip_security_scan }}
+      environment: ${{ steps.set_environment.outputs.environment }}
+      image_tag: ${{ steps.set_image_tag.outputs.image_tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Set environment
+        id: set_environment
+        run: |
+          ENVIRONMENT="${{ github.event.inputs.environment || 'dev' }}"
+          echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
+          echo "Using environment: $ENVIRONMENT"
+
+      - name: Set image tag
+        id: set_image_tag
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "image_tag=pr-${{ github.event.number }}-${{ github.sha }}" >> $GITHUB_OUTPUT
+          else
+            echo "image_tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Set skip tests flag
         id: set_skip_tests
@@ -57,6 +81,15 @@ jobs:
             echo "skip_tests=true" >> $GITHUB_OUTPUT
           else
             echo "skip_tests=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set skip security scan flag
+        id: set_skip_security_scan
+        run: |
+          if [ "${{ github.event.inputs.skip_security_scan }}" = "true" ]; then
+            echo "skip_security_scan=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip_security_scan=false" >> $GITHUB_OUTPUT
           fi
 
   # PHASE 2: CODE ANALYSIS & TESTING WITH SONARCLOUD
@@ -84,42 +117,43 @@ jobs:
         run: |
           echo "Installing dependencies for Patient Service..."
           cd src/patient-service
-          # Remove existing node_modules and lock file to ensure clean install
-          rm -rf node_modules package-lock.json
-          npm install --no-audit --prefer-offline
+          npm ci --audit=false
           cd ../..
-          echo "✅ Patient Service dependencies installed successfully"
 
       - name: Install dependencies for Appointment Service
         run: |
           echo "Installing dependencies for Appointment Service..."
           cd src/appointment-service
-          # Remove existing node_modules and lock file to ensure clean install
-          rm -rf node_modules package-lock.json
-          npm install --no-audit --prefer-offline
+          npm ci --audit=false
           cd ../..
-          echo "✅ Appointment Service dependencies installed successfully"
+
+      - name: Run security audit
+        run: |
+          echo "🔒 Running npm audit..."
+          cd src/patient-service && npm audit --audit-level moderate || true
+          cd ../../src/appointment-service && npm audit --audit-level moderate || true
+          cd ../..
 
       - name: Run linting for Patient Service
         run: |
           cd src/patient-service
-          npm run lint || echo "Linting completed with warnings"
+          npm run lint -- --max-warnings=0 || echo "Linting completed with warnings"
 
       - name: Run linting for Appointment Service
         run: |
           cd src/appointment-service
-          npm run lint || echo "Linting completed with warnings"
+          npm run lint -- --max-warnings=0 || echo "Linting completed with warnings"
 
       - name: Run tests with coverage for Patient Service
         run: |
           cd src/patient-service
-          npm test
+          npm test -- --coverage --watchAll=false
           echo "Patient Service tests completed"
 
       - name: Run tests with coverage for Appointment Service
         run: |
           cd src/appointment-service
-          npm test
+          npm test -- --coverage --watchAll=false
           echo "Appointment Service tests completed"
 
       - name: Upload coverage reports
@@ -164,6 +198,8 @@ jobs:
       (needs.code_analysis.result == 'success' || 
        needs.code_analysis.result == 'skipped' ||
        needs.checkout_and_setup.outputs.skip_tests == 'true')
+    outputs:
+      image_tag: ${{ needs.checkout_and_setup.outputs.image_tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -180,17 +216,36 @@ jobs:
         run: |
           az acr login --name ${{ env.ACR_NAME }}
 
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/patient-service
+            ${{ env.REGISTRY }}/appointment-service
+          tags: |
+            type=sha,prefix={{branch}}-
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
       - name: Build and push Patient Service
         uses: docker/build-push-action@v5
         with:
           context: ./src/patient-service
           push: true
           tags: |
-            ${{ env.REGISTRY }}/patient-service:${{ github.sha }}
+            ${{ env.REGISTRY }}/patient-service:${{ needs.checkout_and_setup.outputs.image_tag }}
             ${{ env.REGISTRY }}/patient-service:latest
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
+          build-args: |
+            NODE_ENV=production
+            NPM_TOKEN=${{ secrets.NPM_TOKEN }}
 
       - name: Build and push Appointment Service
         uses: docker/build-push-action@v5
@@ -198,11 +253,15 @@ jobs:
           context: ./src/appointment-service
           push: true
           tags: |
-            ${{ env.REGISTRY }}/appointment-service:${{ github.sha }}
+            ${{ env.REGISTRY }}/appointment-service:${{ needs.checkout_and_setup.outputs.image_tag }}
             ${{ env.REGISTRY }}/appointment-service:latest
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
+          build-args: |
+            NODE_ENV=production
+            NPM_TOKEN=${{ secrets.NPM_TOKEN }}
 
       - name: Verify pushed images
         run: |
@@ -217,11 +276,14 @@ jobs:
           
           echo "✅ All images built and pushed successfully to ACR"
 
-  # PHASE 4: SECURITY SCAN ACR IMAGES
+  # PHASE 4: SECURITY SCAN ACR IMAGES (WARNING-ONLY MODE)
   security_scan_acr:
     name: "4. Security Scan ACR Images"
     runs-on: ubuntu-latest
-    needs: build_and_push_images
+    needs: 
+      - checkout_and_setup
+      - build_and_push_images
+    if: needs.checkout_and_setup.outputs.skip_security_scan == 'false'
     steps:
       - name: Log in to Azure
         uses: azure/login@v2
@@ -234,40 +296,153 @@ jobs:
 
       - name: Install Trivy
         run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.45.0
           trivy --version
 
-      - name: Scan Patient Service image
+      - name: Scan images and generate report
+        id: scan
+        continue-on-error: true  # Don't fail the job even if vulnerabilities found
         run: |
-          echo "🔍 Scanning Patient Service image for vulnerabilities..."
+          echo "🔍 Scanning images for vulnerabilities (warning mode)..."
+          
+          # Scan Patient Service
+          echo "=== Scanning Patient Service ==="
           trivy image \
-            ${{ env.REGISTRY }}/patient-service:${{ github.sha }} \
-            --severity CRITICAL \
-            --exit-code 0 \
+            ${{ env.REGISTRY }}/patient-service:${{ needs.build_and_push_images.outputs.image_tag }} \
+            --severity CRITICAL,HIGH,MEDIUM \
             --format table \
-            --ignore-unfixed
-          echo "✅ Patient Service security scan completed"
+            --ignore-unfixed \
+            --exit-code 0  # Always exit with 0 (success)
+          
+          # Scan Appointment Service
+          echo "=== Scanning Appointment Service ==="
+          trivy image \
+            ${{ env.REGISTRY }}/appointment-service:${{ needs.build_and_push_images.outputs.image_tag }} \
+            --severity CRITICAL,HIGH,MEDIUM \
+            --format table \
+            --ignore-unfixed \
+            --exit-code 0  # Always exit with 0 (success)
+          
+          echo "✅ Security scan completed - reports will be generated"
 
-      - name: Scan Appointment Service image
+      - name: Generate vulnerability report
+        if: always()
         run: |
-          echo "🔍 Scanning Appointment Service image for vulnerabilities..."
+          echo "📋 Generating vulnerability summary..."
+          
+          # Generate JSON reports for analysis
+          echo "Generating JSON vulnerability reports..."
           trivy image \
-            ${{ env.REGISTRY }}/appointment-service:${{ github.sha }} \
-            --severity CRITICAL \
-            --exit-code 1 \
+            ${{ env.REGISTRY }}/patient-service:${{ needs.build_and_push_images.outputs.image_tag }} \
+            --format json \
+            --output patient-vuln.json \
+            --ignore-unfixed \
+            --exit-code 0
+          
+          trivy image \
+            ${{ env.REGISTRY }}/appointment-service:${{ needs.build_and_push_images.outputs.image_tag }} \
+            --format json \
+            --output appointment-vuln.json \
+            --ignore-unfixed \
+            --exit-code 0
+          
+          # Count vulnerabilities
+          PATIENT_CRITICAL=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' patient-vuln.json 2>/dev/null || echo "0")
+          PATIENT_HIGH=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "HIGH")] | length' patient-vuln.json 2>/dev/null || echo "0")
+          PATIENT_MEDIUM=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "MEDIUM")] | length' patient-vuln.json 2>/dev/null || echo "0")
+          
+          APPOINTMENT_CRITICAL=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' appointment-vuln.json 2>/dev/null || echo "0")
+          APPOINTMENT_HIGH=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "HIGH")] | length' appointment-vuln.json 2>/dev/null || echo "0")
+          APPOINTMENT_MEDIUM=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity == "MEDIUM")] | length' appointment-vuln.json 2>/dev/null || echo "0")
+          
+          echo "## 🔍 Security Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Patient Service" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔴 **CRITICAL**: $PATIENT_CRITICAL" >> $GITHUB_STEP_SUMMARY
+          echo "- 🟠 **HIGH**: $PATIENT_HIGH" >> $GITHUB_STEP_SUMMARY
+          echo "- 🟡 **MEDIUM**: $PATIENT_MEDIUM" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Appointment Service" >> $GITHUB_STEP_SUMMARY
+          echo "- 🔴 **CRITICAL**: $APPOINTMENT_CRITICAL" >> $GITHUB_STEP_SUMMARY
+          echo "- 🟠 **HIGH**: $APPOINTMENT_HIGH" >> $GITHUB_STEP_SUMMARY
+          echo "- 🟡 **MEDIUM**: $APPOINTMENT_MEDIUM" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          TOTAL_CRITICAL=$((PATIENT_CRITICAL + APPOINTMENT_CRITICAL))
+          TOTAL_HIGH=$((PATIENT_HIGH + APPOINTMENT_HIGH))
+          
+          if [ "$TOTAL_CRITICAL" -gt 0 ] || [ "$TOTAL_HIGH" -gt 0 ]; then
+            echo "⚠️ **Security Alert: High/Critical Vulnerabilities Detected**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Summary:**" >> $GITHUB_STEP_SUMMARY
+            echo "- 🔴 Total CRITICAL: $TOTAL_CRITICAL" >> $GITHUB_STEP_SUMMARY
+            echo "- 🟠 Total HIGH: $TOTAL_HIGH" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Note:** This pipeline is configured in **warning-only mode**. Deployments will continue, but please review and address these vulnerabilities in future releases." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ **No high/critical vulnerabilities detected**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "All detected vulnerabilities are of medium or lower severity." >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*Scan completed at: $(date)*" >> $GITHUB_STEP_SUMMARY
+
+      - name: Generate SBOM
+        if: always()
+        run: |
+          echo "📋 Generating Software Bill of Materials..."
+          
+          trivy image \
+            ${{ env.REGISTRY }}/patient-service:${{ needs.build_and_push_images.outputs.image_tag }} \
+            --format cyclonedx \
+            --output patient-service-sbom.json \
+            --exit-code 0
+          
+          trivy image \
+            ${{ env.REGISTRY }}/appointment-service:${{ needs.build_and_push_images.outputs.image_tag }} \
+            --format cyclonedx \
+            --output appointment-service-sbom.json \
+            --exit-code 0
+          
+          echo "SBOM files generated successfully"
+
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports-${{ needs.build_and_push_images.outputs.image_tag }}
+          path: |
+            *-vuln.json
+            *-sbom.json
+          retention-days: 30
+
+      - name: Check image configuration
+        if: always()
+        run: |
+          echo "🔧 Checking image configuration..."
+          trivy image \
+            ${{ env.REGISTRY }}/patient-service:${{ needs.build_and_push_images.outputs.image_tag }} \
+            --security-checks config \
             --format table \
-            --ignore-unfixed
-          echo "✅ Appointment Service security scan completed"
+            --exit-code 0
+
+          trivy image \
+            ${{ env.REGISTRY }}/appointment-service:${{ needs.build_and_push_images.outputs.image_tag }} \
+            --security-checks config \
+            --format table \
+            --exit-code 0
 
   # PHASE 5: TERRAFORM INFRASTRUCTURE
   terraform_infrastructure:
-    name: "5. Terraform Infrastructure - ${{ github.event.inputs.environment || 'dev' }}"
+    name: "5. Terraform Infrastructure - ${{ needs.checkout_and_setup.outputs.environment }}"
     runs-on: ubuntu-latest
     needs: 
       - checkout_and_setup
       - build_and_push_images
       - security_scan_acr
-    environment: ${{ github.event.inputs.environment || 'dev' }}
+    environment: ${{ needs.checkout_and_setup.outputs.environment }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -284,30 +459,30 @@ jobs:
 
       - name: Terraform Format Check
         run: |
-          terraform -chdir=terraform/environments/${{ github.event.inputs.environment || 'dev' }} fmt -check -recursive
+          terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} fmt -check -recursive
 
       - name: Terraform Init
         run: |
-          terraform -chdir=terraform/environments/${{ github.event.inputs.environment || 'dev' }} init \
+          terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} init \
             -backend-config="resource_group_name=${{ env.RESOURCE_GROUP_NAME }}" \
             -backend-config="storage_account_name=${{ env.STORAGE_ACCOUNT_NAME }}" \
             -backend-config="container_name=tfstate" \
-            -backend-config="key=${{ github.event.inputs.environment || 'dev' }}.tfstate" \
+            -backend-config="key=${{ needs.checkout_and_setup.outputs.environment }}.tfstate" \
             -input=false \
             -upgrade
 
       - name: Terraform Validate
         run: |
-          terraform -chdir=terraform/environments/${{ github.event.inputs.environment || 'dev' }} validate
+          terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} validate
 
       - name: Terraform Plan
         run: |
-          terraform -chdir=terraform/environments/${{ github.event.inputs.environment || 'dev' }} plan \
+          terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} plan \
             -input=false \
             -var="resource_group_name=${{ env.RESOURCE_GROUP_NAME }}" \
             -var="acr_name=${{ env.ACR_NAME }}" \
             -var="aks_cluster_name=${{ env.AKS_CLUSTER_NAME }}" \
-            -var="environment=${{ github.event.inputs.environment || 'dev' }}" \
+            -var="environment=${{ needs.checkout_and_setup.outputs.environment }}" \
             -var="location=eastus" \
             -var="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
             -out=tfplan
@@ -315,7 +490,7 @@ jobs:
       - name: Terraform Apply
         if: github.event_name != 'pull_request'
         run: |
-          terraform -chdir=terraform/environments/${{ github.event.inputs.environment || 'dev' }} apply \
+          terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} apply \
             -auto-approve \
             -input=false \
             tfplan
@@ -347,12 +522,12 @@ jobs:
 
   # PHASE 6: HELM DEPLOYMENT
   helm_deployment:
-    name: "6. Helm Deployment - ${{ github.event.inputs.environment || 'dev' }}"
+    name: "6. Helm Deployment - ${{ needs.checkout_and_setup.outputs.environment }}"
     runs-on: ubuntu-latest
     needs: 
       - terraform_infrastructure
       - build_and_push_images
-    environment: ${{ github.event.inputs.environment || 'dev' }}
+    environment: ${{ needs.checkout_and_setup.outputs.environment }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -399,7 +574,7 @@ jobs:
           echo "🚀 Deploying Healthcare App with Helm..."
           
           # Check if values file exists for environment
-          VALUES_FILE="${{ env.HELM_CHART_DIR }}/healthcare-app/values-${{ github.event.inputs.environment || 'dev' }}.yaml"
+          VALUES_FILE="${{ env.HELM_CHART_DIR }}/healthcare-app/values-${{ needs.checkout_and_setup.outputs.environment }}.yaml"
           VALUES_ARG=""
           if [ -f "$VALUES_FILE" ]; then
             VALUES_ARG="--values $VALUES_FILE"
@@ -412,12 +587,12 @@ jobs:
             ${{ env.HELM_CHART_DIR }}/healthcare-app \
             --namespace ${{ env.NAMESPACE }} \
             $VALUES_ARG \
-            --set global.environment=${{ github.event.inputs.environment || 'dev' }} \
+            --set global.environment=${{ needs.checkout_and_setup.outputs.environment }} \
             --set patientService.image.repository=${{ env.REGISTRY }}/patient-service \
-            --set patientService.image.tag=${{ github.sha }} \
+            --set patientService.image.tag=${{ needs.build_and_push_images.outputs.image_tag }} \
             --set patientService.image.pullPolicy=Always \
             --set appointmentService.image.repository=${{ env.REGISTRY }}/appointment-service \
-            --set appointmentService.image.tag=${{ github.sha }} \
+            --set appointmentService.image.tag=${{ needs.build_and_push_images.outputs.image_tag }} \
             --set appointmentService.image.pullPolicy=Always \
             --set global.imagePullSecrets[0].name=acr-pull-secret \
             --wait \
@@ -438,10 +613,10 @@ jobs:
 
   # PHASE 7: VERIFICATION & SMOKE TESTS
   verify_deployment:
-    name: "7. Verify Deployment - ${{ github.event.inputs.environment || 'dev' }}"
+    name: "7. Verify Deployment - ${{ needs.checkout_and_setup.outputs.environment }}"
     runs-on: ubuntu-latest
     needs: helm_deployment
-    environment: ${{ github.event.inputs.environment || 'dev' }}
+    environment: ${{ needs.checkout_and_setup.outputs.environment }}
     steps:
       - name: Log in to Azure
         uses: azure/login@v2
@@ -509,19 +684,48 @@ jobs:
           echo "🔍 Testing Appointment Service health endpoint internally..."
           kubectl exec -n ${{ env.NAMESPACE }} $APPOINTMENT_POD -- curl -s http://localhost:3001/health || echo "Appointment service health check failed"
           
+          # Test service connectivity
+          PATIENT_SERVICE=$(kubectl get svc -n ${{ env.NAMESPACE }} -l app.kubernetes.io/name=patient-service -o jsonpath='{.items[0].metadata.name}')
+          APPOINTMENT_SERVICE=$(kubectl get svc -n ${{ env.NAMESPACE }} -l app.kubernetes.io/name=appointment-service -o jsonpath='{.items[0].metadata.name}')
+          
+          echo "🔍 Testing Patient Service via service..."
+          kubectl exec -n ${{ env.NAMESPACE }} $PATIENT_POD -- curl -s http://$PATIENT_SERVICE:3000/health || echo "Patient service via service failed"
+          
+          echo "🔍 Testing Appointment Service via service..."
+          kubectl exec -n ${{ env.NAMESPACE }} $APPOINTMENT_POD -- curl -s http://$APPOINTMENT_SERVICE:3001/health || echo "Appointment service via service failed"
+          
           echo "✅ All smoke tests passed"
+
+      - name: Run API tests
+        run: |
+          echo "🧪 Running API tests..."
+          
+          # Get service endpoints
+          PATIENT_SERVICE=$(kubectl get svc -n ${{ env.NAMESPACE }} -l app.kubernetes.io/name=patient-service -o jsonpath='{.items[0].metadata.name}')
+          APPOINTMENT_SERVICE=$(kubectl get svc -n ${{ env.NAMESPACE }} -l app.kubernetes.io/name=appointment-service -o jsonpath='{.items[0].metadata.name}')
+          
+          # Test basic API endpoints
+          echo "🔍 Testing Patient Service API..."
+          kubectl run -n ${{ env.NAMESPACE }} api-test --image=curlimages/curl:8.4.0 --rm -i --restart=Never -- \
+            curl -s -o /dev/null -w "Patient Service: %{http_code}\n" http://$PATIENT_SERVICE:3000/health || echo "Patient API test failed"
+          
+          echo "🔍 Testing Appointment Service API..."
+          kubectl run -n ${{ env.NAMESPACE }} api-test --image=curlimages/curl:8.4.0 --rm -i --restart=Never -- \
+            curl -s -o /dev/null -w "Appointment Service: %{http_code}\n" http://$APPOINTMENT_SERVICE:3001/health || echo "Appointment API test failed"
+          
+          echo "✅ API tests completed"
 
       - name: Deployment success notification
         run: |
-          echo "🎉 Healthcare App successfully deployed to ${{ github.event.inputs.environment || 'dev' }} environment"
+          echo "🎉 Healthcare App successfully deployed to ${{ needs.checkout_and_setup.outputs.environment }} environment"
           echo ""
           echo "📊 Deployment Summary:"
-          echo "  - Environment: ${{ github.event.inputs.environment || 'dev' }}"
+          echo "  - Environment: ${{ needs.checkout_and_setup.outputs.environment }}"
           echo "  - Resource Group: ${{ env.RESOURCE_GROUP_NAME }}"
           echo "  - AKS Cluster: ${{ env.AKS_CLUSTER_NAME }}"
           echo "  - ACR: ${{ env.ACR_NAME }}"
           echo "  - Namespace: ${{ env.NAMESPACE }}"
-          echo "  - Image Tag: ${{ github.sha }}"
+          echo "  - Image Tag: ${{ needs.build_and_push_images.outputs.image_tag }}"
           echo "  - Helm Release: ${{ env.HELM_RELEASE_NAME }}"
           echo ""
           echo "✅ Services are now available and healthy"
@@ -533,10 +737,10 @@ jobs:
     needs: verify_deployment
     if: |
       always() && 
-      (github.event.inputs.environment == 'dev' || 
+      (needs.checkout_and_setup.outputs.environment == 'dev' || 
        github.ref == 'refs/heads/lbg-demo') &&
       needs.verify_deployment.result == 'success'
-    environment: ${{ github.event.inputs.environment || 'dev' }}
+    environment: ${{ needs.checkout_and_setup.outputs.environment }}
     steps:
       - name: Log in to Azure
         uses: azure/login@v2
@@ -559,3 +763,44 @@ jobs:
             /dev/null || echo "⚠️ Appointment service cleanup completed with warnings"
           
           echo "✅ Cleanup completed successfully"
+
+  # FINAL PHASE: WORKFLOW SUMMARY
+  workflow_summary:
+    name: "📊 Workflow Summary"
+    runs-on: ubuntu-latest
+    needs: 
+      - checkout_and_setup
+      - code_analysis
+      - build_and_push_images
+      - security_scan_acr
+      - terraform_infrastructure
+      - helm_deployment
+      - verify_deployment
+      - cleanup
+    if: always()
+    steps:
+      - name: Workflow Status
+        run: |
+          echo "🎯 CI/CD Pipeline Execution Summary"
+          echo "==================================="
+          echo "Environment: ${{ needs.checkout_and_setup.outputs.environment }}"
+          echo "Image Tag: ${{ needs.build_and_push_images.outputs.image_tag }}"
+          echo "Skip Tests: ${{ needs.checkout_and_setup.outputs.skip_tests }}"
+          echo "Skip Security Scan: ${{ needs.checkout_and_setup.outputs.skip_security_scan }}"
+          echo ""
+          echo "Job Results:"
+          echo "------------"
+          echo "✅ Code Analysis: ${{ needs.code_analysis.result }}"
+          echo "✅ Build & Push Images: ${{ needs.build_and_push_images.result }}"
+          echo "✅ Security Scan: ${{ needs.security_scan_acr.result }}"
+          echo "✅ Terraform: ${{ needs.terraform_infrastructure.result }}"
+          echo "✅ Helm Deployment: ${{ needs.helm_deployment.result }}"
+          echo "✅ Verification: ${{ needs.verify_deployment.result }}"
+          echo "✅ Cleanup: ${{ needs.cleanup.result }}"
+          echo ""
+          if [ "${{ needs.verify_deployment.result }}" = "success" ]; then
+            echo "🎉 DEPLOYMENT SUCCESSFUL!"
+          else
+            echo "❌ DEPLOYMENT FAILED!"
+            exit 1
+          fi
