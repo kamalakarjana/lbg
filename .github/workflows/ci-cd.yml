@@ -346,6 +346,15 @@ jobs:
         
         echo "=== ACR Attachment Process Complete ==="
 
+    - name: Upload Terraform outputs as artifact
+      if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+      uses: actions/upload-artifact@v4
+      with:
+        name: terraform-outputs
+        path: |
+          terraform/
+        retention-days: 30
+
   # Build, Scan and Push Docker Images
   build-scan-push:
     name: 'Build, Scan and Push Docker Images'
@@ -367,14 +376,28 @@ jobs:
         name: helm-charts
         path: ./
 
+    - name: Download Terraform outputs
+      uses: actions/download-artifact@v4
+      with:
+        name: terraform-outputs
+        path: ./
+
     - name: Login to Azure
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Get ACR name from environment
+    - name: Get ACR name from Terraform output
       run: |
-        echo "Using ACR: ${{ env.ACR_NAME }}"
+        cd terraform
+        ACR_NAME=$(terraform output -raw acr_name)
+        echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
+        echo "Using ACR: $ACR_NAME"
+      env:
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     - name: Login to ACR
       uses: azure/docker-login@v1
@@ -386,6 +409,8 @@ jobs:
     - name: Build Docker images
       run: |
         cd src/${{ matrix.service }}
+        echo "Building Docker image for ${{ matrix.service }}"
+        echo "Image tag: ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:${{ github.sha }}"
         docker build -t ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:${{ github.sha }} .
         docker build -t ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:dev .
 
@@ -393,32 +418,17 @@ jobs:
       uses: aquasecurity/trivy-action@master
       with:
         image-ref: '${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:${{ github.sha }}'
-        format: 'sarif'
-        output: 'trivy-results-${{ matrix.service }}.sarif'
+        format: 'table'
         severity: 'CRITICAL,HIGH'
-
-    - name: Check if Trivy SARIF file exists before upload
-      run: |
-        echo "Checking for Trivy SARIF files..."
-        ls -la *.sarif 2>/dev/null || echo "No SARIF files found - continuing pipeline"
-        if [ -f "trivy-results-${{ matrix.service }}.sarif" ]; then
-          echo "✅ SARIF file found: trivy-results-${{ matrix.service }}.sarif"
-        else
-          echo "⚠️ SARIF file not found: trivy-results-${{ matrix.service }}.sarif"
-        fi
-
-    - name: Upload Trivy scan results to GitHub Security tab
-      uses: github/codeql-action/upload-sarif@v3
-      if: always()
-      with:
-        sarif_file: 'trivy-results-${{ matrix.service }}.sarif'
-      continue-on-error: true  # Don't fail the pipeline if SARIF upload fails
+      continue-on-error: true  # Don't fail build on vulnerabilities
 
     - name: Push Docker images
       if: success()
       run: |
+        echo "Pushing Docker images to ACR..."
         docker push ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:${{ github.sha }}
         docker push ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:dev
+        echo "✅ Successfully pushed images for ${{ matrix.service }}"
 
     - name: Prepare Helm values with MINIMAL resources
       if: success()
@@ -501,6 +511,17 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+    - name: Get ACR name from Terraform output
+      run: |
+        cd terraform
+        ACR_NAME=$(terraform output -raw acr_name)
+        echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
+      env:
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
     - name: Wait for ACR scan completion
       run: |
         echo "Waiting for ACR vulnerability scans to complete..."
@@ -536,10 +557,32 @@ jobs:
         name: helm-values
         path: ./
 
+    - name: Download Terraform outputs
+      uses: actions/download-artifact@v4
+      with:
+        name: terraform-outputs
+        path: ./
+
     - name: Login to Azure
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Get AKS cluster info from Terraform output
+      run: |
+        cd terraform
+        AKS_CLUSTER_NAME=$(terraform output -raw aks_cluster_name)
+        RESOURCE_GROUP=$(terraform output -raw resource_group_name)
+        ACR_NAME=$(terraform output -raw acr_name)
+        echo "AKS_CLUSTER_NAME=$AKS_CLUSTER_NAME" >> $GITHUB_ENV
+        echo "RESOURCE_GROUP=$RESOURCE_GROUP" >> $GITHUB_ENV
+        echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
+        echo "Using AKS cluster: $AKS_CLUSTER_NAME in resource group: $RESOURCE_GROUP"
+      env:
+        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
     - name: Get AKS credentials
       run: |
