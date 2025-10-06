@@ -26,8 +26,8 @@ terraform {
   }
 }
 
-# Configure the Azure Provider - NO EXPLICIT CREDENTIALS
+# Configure the Azure Provider - Authentication via environment variables only
 provider "azurerm" {
   features {}
-  # Credentials will come from environment variables
+  # No explicit credentials - they come from ARM_CLIENT_ID, ARM_CLIENT_SECRET, etc.
 }

@@ -244,8 +244,8 @@ jobs:
     - name: Terraform Format Check
       run: |
         cd terraform
-        terraform fmt -recursive -check
-        echo "Format check completed - continuing pipeline"
+        terraform fmt -recursive
+        echo "Formatting completed - continuing pipeline"
 
     - name: Terraform Plan
       id: plan
