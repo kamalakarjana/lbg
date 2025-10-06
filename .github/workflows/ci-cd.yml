@@ -204,7 +204,7 @@ jobs:
           path: ${{ env.HELM_CHART_DIR }}/
           retention-days: 30
 
-  # Terraform Infrastructure as Code - CENTRAL US REGION
+  # Terraform Infrastructure as Code - CENTRAL US REGION (FIXED)
   terraform:
     name: 'Terraform - Central US'
     runs-on: ubuntu-latest
@@ -213,19 +213,6 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: Login to Azure
-      uses: azure/login@v1
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-    - name: Create Main Resource Group if not exists
-      run: |
-        # Create the main resource group for your healthcare app
-        az group create \
-          --name ${{ env.RESOURCE_GROUP }} \
-          --location "Central US" \
-          --tags environment=dev project=healthcare-app branch=dev || echo "Resource group already exists or creation failed"
 
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
@@ -295,6 +282,12 @@ jobs:
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+    - name: Login to Azure for ACR attachment (Service Principal)
+      if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
 
     - name: Manually Attach ACR to AKS
       if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
