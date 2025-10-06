@@ -107,13 +107,13 @@ jobs:
       - name: Run tests with coverage for Patient Service
         run: |
           cd src/patient-service
-          npm test -- --watchAll=false --coverage --passWithNoTests
+          npm test
           echo "Patient Service tests completed"
 
       - name: Run tests with coverage for Appointment Service
         run: |
           cd src/appointment-service
-          npm test -- --watchAll=false --coverage --passWithNoTests
+          npm test
           echo "Appointment Service tests completed"
 
       - name: Upload coverage reports
