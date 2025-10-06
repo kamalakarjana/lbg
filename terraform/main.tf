@@ -1,7 +1,7 @@
 # New Resource Group for LBG demo cluster
 resource "azurerm_resource_group" "main" {
   name     = "rg-lbg-demo-${var.environment}"
-  location = var.location
+  location = var.location  # Will use "Central US" from variable
   tags = {
     environment = var.environment
     project     = "healthcare-lbg-demo"
@@ -15,7 +15,7 @@ resource "azurerm_container_registry" "acr" {
   name                = "acrlbgdemo${var.environment}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
-  sku                 = "Basic"  # Cheapest option
+  sku                 = "Basic"
   admin_enabled       = true
 
   tags = {
@@ -24,7 +24,7 @@ resource "azurerm_container_registry" "acr" {
   }
 }
 
-# Create new AKS Cluster for demo - Minimal configuration
+# Create new AKS Cluster for demo - Minimum AKS requirements
 resource "azurerm_kubernetes_cluster" "aks" {
   name                = "aks-lbg-demo-${var.environment}"
   location            = azurerm_resource_group.main.location
@@ -32,22 +32,20 @@ resource "azurerm_kubernetes_cluster" "aks" {
   dns_prefix          = "lbg-demo-${var.environment}"
   kubernetes_version  = var.cluster_version
 
-  # Minimal node pool configuration
+  # Minimum node pool configuration that meets AKS requirements
   default_node_pool {
     name                = "default"
-    node_count          = 1  # Single node only
-    vm_size             = "Standard_B1s"  # Smallest burstable instance
-    enable_auto_scaling = false  # Disable auto-scaling to save costs
+    node_count          = 1
+    vm_size             = "Standard_B2s"  # 2 vCPU, 4GB RAM - Minimum for AKS
+    enable_auto_scaling = false
   }
 
-  # Use system-assigned identity (free)
   identity {
     type = "SystemAssigned"
   }
 
-  # Basic network profile
   network_profile {
-    network_plugin = "kubenet"  # Simpler and cheaper than Azure CNI
+    network_plugin = "kubenet"
     network_policy = "calico"
   }
 
