@@ -4,11 +4,11 @@ on:
   push:
     branches:
       - main
-      - develop
+      - lbg-demo
   pull_request:
     branches:
       - main
-      - develop
+      - lbg-demo
   workflow_dispatch:
     inputs:
       environment:
@@ -568,7 +568,7 @@ jobs:
     if: |
       always() && 
       (github.event.inputs.environment == 'dev' || 
-       github.ref == 'refs/heads/develop') &&
+       github.ref == 'refs/heads/lbg-demo') &&
       needs.verify_deployment.result == 'success'
     environment: ${{ github.event.inputs.environment || 'dev' }}
     steps:
