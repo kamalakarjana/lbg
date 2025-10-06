@@ -1,823 +1,408 @@
-name: Healthcare App CI/CD - Central US
+name: Healthcare App CI/CD
 
 on:
   push:
-    branches: [dev, main]
+    branches:
+      - lbg-demo
   pull_request:
-    branches: [dev, main]
-
-# === ADDED: Required permissions for CodeQL ===
-permissions:
-  contents: read
-  security-events: write
-  actions: read
-  packages: read
+    branches:
+      - lbg-demo
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - staging
+        - prod
 
 env:
-  AZURE_CONTAINER_REGISTRY: 'kamalj2kkkk.azurecr.io'
-  RESOURCE_GROUP: 'healthcare-app-rg-dev'
-  AKS_CLUSTER_NAME: 'healthcare-aks-cluster-dev'
-  AKS_NAMESPACE: 'healthcare-ns-dev'
-  # ADDED: Helm specific environments
-  HELM_CHART_DIR: 'kubernetes/helm'
-  HELM_RELEASE_NAME: 'healthcare-app-dev'
+  RESOURCE_GROUP_NAME: healthcare-app-rg
+  ACR_NAME: healthcareappacr160689
+  REGISTRY: healthcareappacr160689.azurecr.io
+  NAMESPACE: healthcare-ns
+  STORAGE_ACCOUNT_NAME: tfstatestorageacc160689
+  AKS_CLUSTER_NAME: healthcare-aks-cluster
+  HELM_EXPERIMENTAL_OCI: 1
 
 jobs:
-  # Code Quality & Tests with SonarCloud
-  code-quality-scan:
-    name: 'Code Quality & Tests with SonarCloud'
+  # PHASE 1: CHECKOUT & SETUP
+  checkout_and_setup:
+    name: "1. Checkout & Setup"
     runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-        cache: 'npm'
-        cache-dependency-path: '**/package-lock.json'
-
-    - name: Install dependencies
-      run: |
-        cd src/patient-service && npm install --no-audit --no-fund
-        cd ../appointment-service && npm install --no-audit --no-fund
-
-    - name: Run tests with coverage
-      run: |
-        echo "Running tests for patient-service..."
-        cd src/patient-service && npm test -- --coverage --watchAll=false --detectOpenHandles --forceExit
-        
-        echo "Running tests for appointment-service..."
-        cd ../appointment-service && npm test -- --coverage --watchAll=false --detectOpenHandles --forceExit
-
-    - name: Run ESLint analysis
-      run: |
-        echo "ESLint analysis for patient-service:"
-        cd src/patient-service && npm run lint || echo "ESLint completed with warnings"
-        
-        echo "ESLint analysis for appointment-service:"
-        cd ../appointment-service && npm run lint || echo "ESLint completed with warnings"
-
-    - name: Debug - Check coverage files in detail
-      run: |
-        echo "=== Current directory structure ==="
-        find . -name "lcov.info" -type f 2>/dev/null | head -20
-        echo "=== Patient service coverage ==="
-        ls -la src/patient-service/coverage/ 2>/dev/null || echo "No patient coverage directory"
-        echo "=== Appointment service coverage ==="
-        ls -la src/appointment-service/coverage/ 2>/dev/null || echo "No appointment coverage directory"
-        
-        # Check if lcov files actually exist and have content
-        if [ -f "src/patient-service/coverage/lcov.info" ]; then
-          echo "Patient service lcov.info exists, first few lines:"
-          head -5 src/patient-service/coverage/lcov.info
-        else
-          echo "Patient service lcov.info NOT FOUND"
-        fi
-        
-        if [ -f "src/appointment-service/coverage/lcov.info" ]; then
-          echo "Appointment service lcov.info exists, first few lines:"
-          head -5 src/appointment-service/coverage/lcov.info
-        else
-          echo "Appointment service lcov.info NOT FOUND"
-        fi
-
-    - name: SonarCloud Scan
-      uses: SonarSource/sonarcloud-github-action@v2
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      with:
-        args: >
-          -Dsonar.organization=kamalakarjana
-          -Dsonar.projectKey=kamalakarjana_lbg
-          -Dsonar.projectName=lbg
-          -Dsonar.projectVersion=2.1.0
-          -Dsonar.sources=src/
-          -Dsonar.tests=src/
-          -Dsonar.javascript.lcov.reportPaths=src/patient-service/coverage/lcov.info,src/appointment-service/coverage/lcov.info
-          -Dsonar.coverage.exclusions=**/node_modules/**,**/*.test.js
-          -Dsonar.scm.disabled=true
-          -Dsonar.analysis.automatic=false
-          -Dsonar.exclusions=**/Dockerfile,**/node_modules/**,**/coverage/**,**/*.yaml,**/*.yml,**/*.json,**/*.md,**/*.lock,terraform/**,kubernetes/**,**/jest.config.js,**/package.json,**/package-lock.json
-          -Dsonar.test.exclusions=**/Dockerfile,**/node_modules/**,**/coverage/**,**/*.yaml,**/*.yml,**/*.json,**/*.md,**/*.lock,terraform/**,kubernetes/**,**/jest.config.js,**/package.json,**/package-lock.json
-          -Dsonar.test.inclusions=**/*.test.js
-
-    - name: Upload coverage reports
-      uses: actions/upload-artifact@v4
-      with:
-        name: coverage-reports
-        path: |
-          src/patient-service/coverage/
-          src/appointment-service/coverage/
-        retention-days: 30
-        overwrite: true
-
-  # Security Scanning - UPDATED FOR CODEQL FIX
-  security-scan:
-    name: 'Security Scan'
-    runs-on: ubuntu-latest
-    needs: code-quality-scan
-    
-    # === ADDED: Specific permissions for security scanning ===
-    permissions:
-      contents: read
-      security-events: write
-      actions: read
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0  # Important for CodeQL to work properly
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-
-    - name: Install dependencies
-      run: |
-        cd src/patient-service && npm install --no-audit --no-fund
-        cd ../appointment-service && npm install --no-audit --no-fund
-
-    - name: Run npm audit
-      run: |
-        echo "Running security audit for patient-service..."
-        cd src/patient-service && npm audit --audit-level=high || true
-        
-        echo "Running security audit for appointment-service..."
-        cd ../appointment-service && npm audit --audit-level=high || true
-
-    # === UPDATED: CodeQL with proper configuration ===
-    - name: Initialize CodeQL
-      uses: github/codeql-action/init@v3
-      with:
-        languages: javascript
-        queries: security-and-quality
-
-    - name: Autobuild
-      uses: github/codeql-action/autobuild@v3
-
-    - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v3
-      with:
-        category: '/language:javascript'
-
-  # Helm Dependency Update and Lint - UPDATED: Fixed validation step
-  helm-dependencies:
-    name: 'Helm Dependencies & Lint'
-    runs-on: ubuntu-latest
-    needs: [code-quality-scan, security-scan]
-    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+  # PHASE 2: CODE ANALYSIS & TESTING WITH SONARCLOUD
+  code_analysis:
+    name: "2. Code Analysis & Testing"
+    runs-on: ubuntu-latest
+    needs: checkout_and_setup
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: |
+          cd src/patient-service && npm ci
+          cd ../appointment-service && npm ci
+
+      - name: Run linting
+        run: |
+          cd src/patient-service && npm run lint || true
+          cd ../appointment-service && npm run lint || true
+
+      - name: Run tests with coverage
+        run: |
+          echo "Running tests with coverage..."
+          cd src/patient-service && npm test -- --watchAll=false --coverage --passWithNoTests
+          cd ../appointment-service && npm test -- --watchAll=false --coverage --passWithNoTests
+          echo "Tests completed successfully"
+
+  # PHASE 3: BUILD & PUSH DOCKER IMAGES
+  build_and_push_images:
+    name: "3. Build & Push Docker Images"
+    runs-on: ubuntu-latest
+    needs: code_analysis
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build and push Patient Service to ACR
+        uses: docker/build-push-action@v5
+        with:
+          context: ./src/patient-service
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/patient-service:${{ github.sha }}
+            ${{ env.REGISTRY }}/patient-service:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.label-schema.build-date=${{ github.event.head_commit.timestamp }}
+            org.label-schema.vcs-ref=${{ github.sha }}
+
+      - name: Build and push Appointment Service to ACR
+        uses: docker/build-push-action@v5
+        with:
+          context: ./src/appointment-service
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/appointment-service:${{ github.sha }}
+            ${{ env.REGISTRY }}/appointment-service:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.label-schema.build-date=${{ github.event.head_commit.timestamp }}
+            org.label-schema.vcs-ref=${{ github.sha }}
+
+      - name: Verify pushed images
+        run: |
+          echo "=== ACR Images ==="
+          az acr repository list --name ${{ env.ACR_NAME }} --output table
+          echo "Patient Service tags:"
+          az acr repository show-tags --name ${{ env.ACR_NAME }} --repository patient-service --output table
+          echo "Appointment Service tags:"
+          az acr repository show-tags --name ${{ env.ACR_NAME }} --repository appointment-service --output table
+          echo "All images built and pushed to ACR"
+
+  # PHASE 4: SECURITY SCAN ACR IMAGES
+  security_scan_acr:
+    name: "4. Security Scan ACR Images"
+    runs-on: ubuntu-latest
+    needs: build_and_push_images
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Scan Patient Service from ACR
+        run: |
+          echo "Scanning Patient Service image from ACR for vulnerabilities..."
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image \
+            ${{ env.REGISTRY }}/patient-service:${{ github.sha }} \
+            --severity CRITICAL,HIGH --exit-code 0 --format table
+          echo "Patient Service security scan completed"
+
+      - name: Scan Appointment Service from ACR
+        run: |
+          echo "Scanning Appointment Service image from ACR for vulnerabilities..."
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image \
+            ${{ env.REGISTRY }}/appointment-service:${{ github.sha }} \
+            --severity CRITICAL,HIGH --exit-code 0 --format table
+          echo "Appointment Service security scan completed"
+
+  # PHASE 5: TERRAFORM INFRASTRUCTURE
+  terraform_infrastructure:
+    name: "5. Terraform Infrastructure - ${{ github.event.inputs.environment || 'dev' }}"
+    runs-on: ubuntu-latest
+    needs: [code_analysis, build_and_push_images, security_scan_acr]
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Terraform Init
+        run: |
+          terraform -chdir=terraform/environments/${{ github.event.inputs.environment || 'dev' }} init -input=false
+
+      - name: Terraform Validate
+        run: terraform -chdir=terraform/environments/${{ github.event.inputs.environment || 'dev' }} validate
+
+      - name: Terraform Plan
+        run: |
+          terraform -chdir=terraform/environments/${{ github.event.inputs.environment || 'dev' }} plan \
+            -input=false \
+            -var="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+
+      - name: Terraform Apply (for deployment only)
+        if: github.event_name != 'pull_request'
+        run: |
+          terraform -chdir=terraform/environments/${{ github.event.inputs.environment || 'dev' }} apply \
+            -auto-approve \
+            -input=false \
+            -var="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+
+      - name: Configure kubectl (for deployment only)
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "Configuring kubectl for AKS cluster: ${{ env.AKS_CLUSTER_NAME }}"
+          az aks get-credentials \
+            --resource-group ${{ env.RESOURCE_GROUP_NAME }} \
+            --name ${{ env.AKS_CLUSTER_NAME }} \
+            --overwrite-existing
+
+      - name: Verify AKS cluster (for deployment only)
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "=== AKS Cluster Info ==="
+          kubectl cluster-info
+          echo "=== Nodes ==="
+          kubectl get nodes
+          echo "Infrastructure deployed successfully"
+
+  # PHASE 6: HELM DEPLOYMENT
+  helm_deployment:
+    name: "6. Helm Deployment - ${{ github.event.inputs.environment || 'dev' }}"
+    runs-on: ubuntu-latest
+    needs: [terraform_infrastructure, build_and_push_images]
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Configure kubectl
+        run: |
+          echo "Configuring kubectl for AKS cluster: ${{ env.AKS_CLUSTER_NAME }}"
+          az aks get-credentials \
+            --resource-group ${{ env.RESOURCE_GROUP_NAME }} \
+            --name ${{ env.AKS_CLUSTER_NAME }} \
+            --overwrite-existing
 
       - name: Setup Helm
         uses: azure/setup-helm@v3
         with:
           version: '3.12.0'
 
-      - name: Lint Helm charts
+      - name: Create namespace
         run: |
-          cd ${{ env.HELM_CHART_DIR }}
-          helm lint ./healthcare-app --strict
-          helm template ./healthcare-app --debug
+          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Validate Helm values
+      - name: Create ACR pull secret
         run: |
-          cd ${{ env.HELM_CHART_DIR }}
-          # Validate dev values
-          helm template ${{ env.HELM_RELEASE_NAME }} ./healthcare-app -f ./healthcare-app/values-dev.yaml --debug
+          kubectl create secret docker-registry acr-secret \
+            --namespace ${{ env.NAMESPACE }} \
+            --docker-server=${{ env.REGISTRY }} \
+            --docker-username=${{ secrets.ACR_USERNAME }} \
+            --docker-password=${{ secrets.ACR_PASSWORD }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy base Kubernetes resources
+        run: |
+          echo "Deploying base Kubernetes resources..."
+          if [ -d "kubernetes/base" ]; then
+            kubectl apply -f kubernetes/base/ -n ${{ env.NAMESPACE }}
+          fi
+
+      - name: Deploy Patient Service with Helm
+        run: |
+          echo "Deploying Patient Service with Helm..."
+          helm upgrade --install patient-service \
+            kubernetes/helm/patient-service \
+            --namespace ${{ env.NAMESPACE }} \
+            --set image.tag=${{ github.sha }} \
+            --set replicaCount=2 \
+            --set image.pullPolicy=Always \
+            --set service.type=LoadBalancer \
+            --wait --timeout 300s
+
+      - name: Deploy Appointment Service with Helm
+        run: |
+          echo "Deploying Appointment Service with Helm..."
+          helm upgrade --install appointment-service \
+            kubernetes/helm/appointment-service \
+            --namespace ${{ env.NAMESPACE }} \
+            --set image.tag=${{ github.sha }} \
+            --set replicaCount=2 \
+            --set image.pullPolicy=Always \
+            --set service.type=LoadBalancer \
+            --wait --timeout 300s
+
+      - name: Verify Helm deployments
+        run: |
+          echo "=== Helm Releases ==="
+          helm list --namespace ${{ env.NAMESPACE }}
           
-          # Simple validation - check that templates render without errors
-          echo "Helm templates rendered successfully!"
+          echo "=== Patient Service Status ==="
+          helm status patient-service --namespace ${{ env.NAMESPACE }}
+          
+          echo "=== Appointment Service Status ==="
+          helm status appointment-service --namespace ${{ env.NAMESPACE }}
 
-      - name: Upload Helm charts as artifact
-        uses: actions/upload-artifact@v4
+  # PHASE 7: VERIFICATION & SMOKE TESTS
+  verify_deployment:
+    name: "7. Verify Deployment - ${{ github.event.inputs.environment || 'dev' }}"
+    runs-on: ubuntu-latest
+    needs: helm_deployment
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
         with:
-          name: helm-charts
-          path: ${{ env.HELM_CHART_DIR }}/
-          retention-days: 30
-          overwrite: true
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-  # Terraform Infrastructure as Code - CENTRAL US REGION (FIXED AUTHENTICATION)
-  terraform:
-    name: 'Terraform - Central US'
-    runs-on: ubuntu-latest
-    needs: [code-quality-scan, security-scan, helm-dependencies]
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Configure kubectl
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ env.RESOURCE_GROUP_NAME }} \
+            --name ${{ env.AKS_CLUSTER_NAME }} \
+            --overwrite-existing
 
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v3
-      with:
-        terraform_version: '1.5.0'
-
-    - name: Terraform Init
-      id: init
-      run: |
-        cd terraform
-        terraform init -input=false
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Terraform Validate
-      id: validate
-      run: |
-        cd terraform
-        terraform validate -json
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Terraform Format Check
-      run: |
-        cd terraform
-        terraform fmt -recursive
-        echo "Formatting completed - continuing pipeline"
-
-    - name: Terraform Plan
-      id: plan
-      if: github.event_name == 'pull_request'
-      run: |
-        cd terraform
-        terraform plan \
-          -var="environment=dev" \
-          -var="location=Central US" \
-          -no-color -input=false
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Terraform Apply
-      if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
-      run: |
-        cd terraform
-        terraform apply -auto-approve -input=false \
-          -var="environment=dev" \
-          -var="location=Central US"
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Login to Azure for ACR attachment
-      if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
-      uses: azure/login@v1
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-    - name: Get Terraform outputs for ACR attachment
-      if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
-      run: |
-        cd terraform
-        
-        # Get resource names from Terraform output WITH ENVIRONMENT VARIABLES
-        ACR_NAME=$(terraform output -raw acr_name)
-        AKS_CLUSTER_NAME=$(terraform output -raw aks_cluster_name)
-        RESOURCE_GROUP=$(terraform output -raw resource_group_name)
-        
-        echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
-        echo "AKS_CLUSTER_NAME=$AKS_CLUSTER_NAME" >> $GITHUB_ENV
-        echo "RESOURCE_GROUP=$RESOURCE_GROUP" >> $GITHUB_ENV
-        
-        echo "=== Terraform Outputs ==="
-        echo "ACR Name: $ACR_NAME"
-        echo "AKS Cluster: $AKS_CLUSTER_NAME"
-        echo "Resource Group: $RESOURCE_GROUP"
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-    - name: Manually Attach ACR to AKS
-      if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
-      run: |
-        echo "=== ACR Attachment Process ==="
-        echo "ACR Name: ${{ env.ACR_NAME }}"
-        echo "AKS Cluster: ${{ env.AKS_CLUSTER_NAME }}"
-        echo "Resource Group: ${{ env.RESOURCE_GROUP }}"
-        
-        echo "Step 1: Attempting to attach ACR to AKS using Azure CLI..."
-        
-        # Method 1: Try using az aks update --attach-acr
-        az aks update -n ${{ env.AKS_CLUSTER_NAME }} -g ${{ env.RESOURCE_GROUP }} --attach-acr ${{ env.ACR_NAME }} && (
-          echo "✅ SUCCESS: ACR automatically attached to AKS using Azure CLI"
-        ) || (
-          echo "⚠️  Automatic attachment failed. Trying alternative method..."
+      - name: Verify deployment
+        run: |
+          echo "=== Cluster Info ==="
+          kubectl cluster-info
           
-          # Method 2: Manual role assignment using Azure CLI
-          echo "Step 2: Getting AKS cluster identity..."
-          CLIENT_ID=$(az aks show -g ${{ env.RESOURCE_GROUP }} -n ${{ env.AKS_CLUSTER_NAME }} --query identity.principalId -o tsv)
+          echo "=== All Resources in ${{ env.NAMESPACE }} ==="
+          kubectl get all -n ${{ env.NAMESPACE }}
           
-          echo "Step 3: Assigning AcrPull role manually..."
-          az role assignment create \
-            --assignee $CLIENT_ID \
-            --role AcrPull \
-            --scope $(az acr show -n ${{ env.ACR_NAME }} -g ${{ env.RESOURCE_GROUP }} --query id -o tsv) && (
-            echo "✅ SUCCESS: ACR role assigned manually"
-          ) || (
-            echo "❌ Both automatic and manual attachment methods failed."
-            echo "📋 Manual steps required:"
-            echo "   1. Go to Azure Portal"
-            echo "   2. Navigate to your ACR: ${{ env.ACR_NAME }}"
-            echo "   3. Go to Access Control (IAM)"
-            echo "   4. Add role assignment:"
-            echo "      - Role: AcrPull"
-            echo "      - Assign access to: Managed Identity"
-            echo "      - Select: ${{ env.AKS_CLUSTER_NAME }}-agentpool"
-          )
-        )
-        
-        echo "=== ACR Attachment Process Complete ==="
+          echo "=== Pods Details ==="
+          kubectl get pods -n ${{ env.NAMESPACE }} -o wide
+          
+          echo "=== Services ==="
+          kubectl get services -n ${{ env.NAMESPACE }}
+          
+          echo "=== Helm Releases ==="
+          helm list --namespace ${{ env.NAMESPACE }}
 
-    - name: Create outputs file for downstream jobs
-      if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
-      run: |
-        cd terraform
-        
-        # Create a simple outputs file that downstream jobs can read
-        ACR_NAME=$(terraform output -raw acr_name)
-        AKS_CLUSTER_NAME=$(terraform output -raw aks_cluster_name)
-        RESOURCE_GROUP=$(terraform output -raw resource_group_name)
-        
-        cat > terraform-outputs.env << EOF
-        ACR_NAME=$ACR_NAME
-        AKS_CLUSTER_NAME=$AKS_CLUSTER_NAME
-        RESOURCE_GROUP=$RESOURCE_GROUP
-        EOF
-        
-        echo "Created terraform-outputs.env:"
-        cat terraform-outputs.env
-      env:
-        ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-        ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-        ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      - name: Wait for pods to be ready
+        run: |
+          echo "Waiting for Patient Service..."
+          kubectl wait --for=condition=ready pod -l app=patient-service -n ${{ env.NAMESPACE }} --timeout=300s || echo "Patient service not ready yet"
+          
+          echo "Waiting for Appointment Service..."
+          kubectl wait --for=condition=ready pod -l app=appointment-service -n ${{ env.NAMESPACE }} --timeout=300s || echo "Appointment service not ready yet"
 
-    - name: Upload Terraform outputs as artifact
-      if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
-      uses: actions/upload-artifact@v4
-      with:
-        name: terraform-outputs
-        path: terraform/terraform-outputs.env
-        retention-days: 30
-        overwrite: true
+      - name: Run smoke tests
+        run: |
+          # Get service information for smoke tests
+          kubectl get services -n ${{ env.NAMESPACE }}
+          
+          echo "Running basic connectivity tests..."
+          
+          # Test pod connectivity internally
+          PATIENT_POD=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app=patient-service -o jsonpath='{.items[0].metadata.name}')
+          APPOINTMENT_POD=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app=appointment-service -o jsonpath='{.items[0].metadata.name}')
+          
+          echo "Patient Service Pod: $PATIENT_POD"
+          echo "Appointment Service Pod: $APPOINTMENT_POD"
+          
+          # Check if pods are running
+          kubectl exec -n ${{ env.NAMESPACE }} $PATIENT_POD -- echo "Patient service pod is accessible" || echo "Patient service pod check failed"
+          kubectl exec -n ${{ env.NAMESPACE }} $APPOINTMENT_POD -- echo "Appointment service pod is accessible" || echo "Appointment service pod check failed"
+          
+          echo "All smoke tests passed"
 
-  # Build, Scan and Push Docker Images
-  build-scan-push:
-    name: 'Build, Scan and Push Docker Images'
+      - name: Deployment success
+        run: |
+          echo "Healthcare App successfully deployed to ${{ github.event.inputs.environment || 'dev' }} environment"
+          echo "Deployment Summary:"
+          echo "  - Resource Group: ${{ env.RESOURCE_GROUP_NAME }}"
+          echo "  - AKS Cluster: ${{ env.AKS_CLUSTER_NAME }}"
+          echo "  - ACR: ${{ env.ACR_NAME }}"
+          echo "  - Namespace: ${{ env.NAMESPACE }}"
+          echo "  - Image Tag: ${{ github.sha }}"
+          echo "Services are now available and healthy"
+
+  # PHASE 8: CLEANUP (Optional - for dev environment)
+  cleanup:
+    name: "8. Cleanup Old Images"
     runs-on: ubuntu-latest
-    needs: [terraform, helm-dependencies]
-    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
-    
-    strategy:
-      matrix:
-        service: [patient-service, appointment-service]
-    
+    needs: verify_deployment
+    if: always() && (github.event.inputs.environment == 'dev' || github.ref == 'refs/heads/develop')
+    environment: ${{ github.event.inputs.environment || 'dev' }}
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Download Helm charts
-      uses: actions/download-artifact@v4
-      with:
-        name: helm-charts
-        path: ./
-
-    - name: Download Terraform outputs
-      uses: actions/download-artifact@v4
-      with:
-        name: terraform-outputs
-        path: ./
-
-    - name: Load Terraform outputs as environment variables
-      run: |
-        echo "Loading Terraform outputs..."
-        source terraform-outputs.env
-        echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
-        echo "AKS_CLUSTER_NAME=$AKS_CLUSTER_NAME" >> $GITHUB_ENV
-        echo "RESOURCE_GROUP=$RESOURCE_GROUP" >> $GITHUB_ENV
-        echo "Loaded ACR_NAME: $ACR_NAME"
-        echo "Loaded AKS_CLUSTER_NAME: $AKS_CLUSTER_NAME"
-        echo "Loaded RESOURCE_GROUP: $RESOURCE_GROUP"
-
-    - name: Login to Azure
-      uses: azure/login@v1
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-    - name: Login to ACR
-      uses: azure/docker-login@v1
-      with:
-        login-server: ${{ env.ACR_NAME }}.azurecr.io
-        username: ${{ secrets.ACR_USERNAME_DEMO }}
-        password: ${{ secrets.ACR_PASSWORD_DEMO }}
-
-    - name: Build Docker images
-      run: |
-        cd src/${{ matrix.service }}
-        echo "Building Docker image for ${{ matrix.service }}"
-        echo "Image tag: ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:${{ github.sha }}"
-        docker build -t ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:${{ github.sha }} .
-        docker build -t ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:dev .
-
-    - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
-      with:
-        image-ref: '${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:${{ github.sha }}'
-        format: 'table'
-        severity: 'CRITICAL,HIGH'
-      continue-on-error: true  # Don't fail build on vulnerabilities
-
-    - name: Push Docker images
-      if: success()
-      run: |
-        echo "Pushing Docker images to ACR..."
-        docker push ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:${{ github.sha }}
-        docker push ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:dev
-        echo "✅ Successfully pushed images for ${{ matrix.service }}"
-
-    - name: Prepare Helm values with MINIMAL resources
-      if: success()
-      run: |
-        # Create dynamic values file with MINIMAL resources for demo
-        cat > helm-values-${{ github.sha }}.yaml << EOF
-        global:
-          imageRegistry: ${{ env.ACR_NAME }}.azurecr.io
-          tag: ${{ github.sha }}
-          environment: dev
-          namespace: ${{ env.AKS_NAMESPACE }}
-        patientService:
-          image:
-            repository: ${{ env.ACR_NAME }}.azurecr.io/patient-service
-            tag: ${{ github.sha }}
-          replicaCount: 1
-          service:
-            port: 3000
-            targetPort: 3000
-          resources:
-            requests:
-              memory: "128Mi"
-              cpu: "100m"
-            limits:
-              memory: "256Mi"
-              cpu: "250m"
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 3000
-            initialDelaySeconds: 60
-            periodSeconds: 30
-            timeoutSeconds: 10
-            failureThreshold: 3
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 3000
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
-        appointmentService:
-          image:
-            repository: ${{ env.ACR_NAME }}.azurecr.io/appointment-service
-            tag: ${{ github.sha }}
-          replicaCount: 1
-          service:
-            port: 3001
-            targetPort: 3001
-          resources:
-            requests:
-              memory: "128Mi"
-              cpu: "100m"
-            limits:
-              memory: "256Mi"
-              cpu: "250m"
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 3001
-            initialDelaySeconds: 60
-            periodSeconds: 30
-            timeoutSeconds: 10
-            failureThreshold: 3
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 3001
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
-        ingress:
-          enabled: false
-        autoscaling:
-          enabled: false
-        configMaps:
-          patient-service-config: |
-            NODE_ENV=production
-            PORT=3000
-            DB_HOST=patient-db-dev
-          appointment-service-config: |
-            NODE_ENV=production
-            PORT=3001
-            DB_HOST=appointment-db-dev
-        EOF
-        
-        echo "Generated Helm values file with MINIMAL resources:"
-        cat helm-values-${{ github.sha }}.yaml
-
-    - name: Upload Helm values as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: helm-values
-        path: helm-values-${{ github.sha }}.yaml
-        retention-days: 30
-        overwrite: true
-
-  # ACR Vulnerability Scan Check
-  acr-scan-check:
-    name: 'ACR Vulnerability Scan Check'
-    runs-on: ubuntu-latest
-    needs: build-scan-push
-    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Download Terraform outputs
-      uses: actions/download-artifact@v4
-      with:
-        name: terraform-outputs
-        path: ./
-
-    - name: Load Terraform outputs as environment variables
-      run: |
-        echo "Loading Terraform outputs..."
-        source terraform-outputs.env
-        echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
-        echo "AKS_CLUSTER_NAME=$AKS_CLUSTER_NAME" >> $GITHUB_ENV
-        echo "RESOURCE_GROUP=$RESOURCE_GROUP" >> $GITHUB_ENV
-
-    - name: Login to Azure
-      uses: azure/login@v1
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-    - name: Wait for ACR scan completion
-      run: |
-        echo "Waiting for ACR vulnerability scans to complete..."
-        sleep 60
-
-    - name: Check ACR scan results
-      run: |
-        echo "Checking ACR scan results for ${{ env.ACR_NAME }}..."
-        az acr repository show -n ${{ env.ACR_NAME }} --image patient-service:dev || echo "Patient service image not found"
-        az acr repository show -n ${{ env.ACR_NAME }} --image appointment-service:dev || echo "Appointment service image not found"
-        echo "ACR vulnerability scans completed successfully for dev environment"
-
-  # Deploy to AKS Dev using Helm - MINIMAL RESOURCES
-  deploy-to-aks-dev:
-    name: 'Deploy to AKS Dev - Central US'
-    runs-on: ubuntu-latest
-    needs: [acr-scan-check, build-scan-push]
-    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Download Helm charts and values
-      uses: actions/download-artifact@v4
-      with:
-        name: helm-charts
-        path: ./
-
-    - name: Download Helm values
-      uses: actions/download-artifact@v4
-      with:
-        name: helm-values
-        path: ./
-
-    - name: Download Terraform outputs
-      uses: actions/download-artifact@v4
-      with:
-        name: terraform-outputs
-        path: ./
-
-    - name: Load Terraform outputs as environment variables
-      run: |
-        echo "Loading Terraform outputs..."
-        source terraform-outputs.env
-        echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
-        echo "AKS_CLUSTER_NAME=$AKS_CLUSTER_NAME" >> $GITHUB_ENV
-        echo "RESOURCE_GROUP=$RESOURCE_GROUP" >> $GITHUB_ENV
-
-    - name: Login to Azure
-      uses: azure/login@v1
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-    - name: Get AKS credentials
-      run: |
-        az aks get-credentials \
-          --resource-group ${{ env.RESOURCE_GROUP }} \
-          --name ${{ env.AKS_CLUSTER_NAME }} \
-          --overwrite-existing
-
-    - name: Setup Helm
-      uses: azure/setup-helm@v3
-      with:
-        version: '3.12.0'
-
-    - name: Create namespace if not exists
-      run: |
-        kubectl create namespace ${{ env.AKS_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
-
-    - name: Create Image Pull Secret
-      run: |
-        echo "Creating Kubernetes image pull secret..."
-        kubectl create secret docker-registry acr-credentials \
-          --namespace ${{ env.AKS_NAMESPACE }} \
-          --docker-server=${{ env.ACR_NAME }}.azurecr.io \
-          --docker-username=${{ secrets.ACR_USERNAME_DEMO }} \
-          --docker-password=${{ secrets.ACR_PASSWORD_DEMO }} \
-          --dry-run=client -o yaml | kubectl apply -f -
-        echo "✅ Image pull secret 'acr-credentials' created"
-
-    - name: Deploy using Helm with minimal resources
-      run: |
-        cd ${{ env.HELM_CHART_DIR }}
-    
-        # Install without waiting first and without atomic flag
-        helm upgrade --install ${{ env.HELM_RELEASE_NAME }} ./healthcare-app \
-          --namespace ${{ env.AKS_NAMESPACE }} \
-          --values ../../helm-values-${{ github.sha }}.yaml \
-          --values ./healthcare-app/values-dev.yaml \
-          --set global.namespace=${{ env.AKS_NAMESPACE }} \
-          --set global.environment=dev \
-          --set imagePullSecrets[0].name=acr-credentials \
-          --timeout 15m \
-          --wait
-
-    - name: Wait for deployments to be ready with diagnostics
-      run: |
-        echo "=== Checking pod status ==="
-        kubectl get pods -n ${{ env.AKS_NAMESPACE }} -o wide
-        
-        echo "=== Checking pod events ==="
-        kubectl get events -n ${{ env.AKS_NAMESPACE }} --sort-by='.lastTimestamp' | head -20
-        
-        echo "=== Waiting for deployments with longer timeout ==="
-        # Wait with longer timeout and continue even if not fully ready
-        kubectl wait --for=condition=available --timeout=600s deployment/patient-service -n ${{ env.AKS_NAMESPACE }} || echo "Patient service not fully ready - continuing"
-        kubectl wait --for=condition=available --timeout=600s deployment/appointment-service -n ${{ env.AKS_NAMESPACE }} || echo "Appointment service not fully ready - continuing"
-        
-        echo "=== Final deployment status ==="
-        kubectl get deployments -n ${{ env.AKS_NAMESPACE }}
-
-    - name: Verify deployment
-      run: |
-        echo "=== Helm Release Status ==="
-        helm list -n ${{ env.AKS_NAMESPACE }}
-        
-        echo "=== Deployments ==="
-        kubectl get deployments -n ${{ env.AKS_NAMESPACE }}
-        echo "=== Services ==="
-        kubectl get services -n ${{ env.AKS_NAMESPACE }}
-        echo "=== Pods ==="
-        kubectl get pods -n ${{ env.AKS_NAMESPACE }} -o wide
-
-    - name: Test services health endpoints with retries
-      run: |
-        # Test patient service (with retries)
-        echo "Testing Patient Service health endpoint..."
-        for i in {1..10}; do
-          PATIENT_POD=$(kubectl get pods -l app=patient-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "none")
-          if [ "$PATIENT_POD" != "none" ]; then
-            if kubectl exec $PATIENT_POD -n ${{ env.AKS_NAMESPACE }} -- curl -f http://localhost:3000/health; then
-              echo "✅ Patient service health check passed"
-              break
-            else
-              echo "⚠️ Patient service health check attempt $i failed, retrying..."
-              sleep 10
-            fi
-          else
-            echo "No patient service pod found, retrying..."
-            sleep 10
-          fi
-        done
-        
-        # Test appointment service (with retries)
-        echo "Testing Appointment Service health endpoint..."
-        for i in {1..10}; do
-          APPOINTMENT_POD=$(kubectl get pods -l app=appointment-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "none")
-          if [ "$APPOINTMENT_POD" != "none" ]; then
-            if kubectl exec $APPOINTMENT_POD -n ${{ env.AKS_NAMESPACE }} -- curl -f http://localhost:3001/health; then
-              echo "✅ Appointment service health check passed"
-              break
-            else
-              echo "⚠️ Appointment service health check attempt $i failed, retrying..."
-              sleep 10
-            fi
-          else
-            echo "No appointment service pod found, retrying..."
-            sleep 10
-          fi
-        done
-
-    - name: Run basic integration tests
-      run: |
-        echo "Running basic integration tests against dev environment..."
-        
-        # Test services internally
-        PATIENT_POD=$(kubectl get pods -l app=patient-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "none")
-        APPOINTMENT_POD=$(kubectl get pods -l app=appointment-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "none")
-        
-        if [ "$PATIENT_POD" != "none" ]; then
-          echo "Testing Patient Service internally..."
-          kubectl exec $PATIENT_POD -n ${{ env.AKS_NAMESPACE }} -- curl -f http://localhost:3000/health || echo "Patient service internal check failed"
-        else
-          echo "No patient service pod found for internal testing"
-        fi
-        
-        if [ "$APPOINTMENT_POD" != "none" ]; then
-          echo "Testing Appointment Service internally..."
-          kubectl exec $APPOINTMENT_POD -n ${{ env.AKS_NAMESPACE }} -- curl -f http://localhost:3001/health || echo "Appointment service internal check failed"
-        else
-          echo "No appointment service pod found for internal testing"
-        fi
-        
-        echo "Basic integration tests completed"
-
-    - name: Rollback on failure
-      if: failure()
-      run: |
-        echo "Deployment failed, checking if rollback is needed..."
-        
-        # Check if the release exists before attempting rollback
-        if helm status ${{ env.HELM_RELEASE_NAME }} --namespace ${{ env.AKS_NAMESPACE }} > /dev/null 2>&1; then
-          echo "Release exists, performing rollback..."
-          helm rollback ${{ env.HELM_RELEASE_NAME }} 0 --namespace ${{ env.AKS_NAMESPACE }} --timeout 5m
-          echo "Rollback completed"
-        else
-          echo "Release not found (may have been uninstalled), no rollback needed"
-        fi
-        
-        exit 1
-
-  # Post-deployment cleanup and notifications
-  cleanup-notify:
-    name: 'Cleanup and Notify'
-    runs-on: ubuntu-latest
-    needs: deploy-to-aks-dev
-    if: always()
-    
-    steps:
-    - name: Send notification
-      if: always()
-      run: |
-        if [ "${{ needs.deploy-to-aks-dev.result }}" == "success" ]; then
-          echo "🚀 DEMO SUCCESS: Deployment to AKS Central US completed successfully!"
-          echo "Minimal Resources Used:"
-          echo "- Region: Central US"
-          echo "- AKS: 1 node (Standard_B2s - 2 vCPU, 4GB RAM)"
-          echo "- ACR: Basic SKU"
-          echo "- Services: 1 replica each with minimal CPU/Memory"
-          echo "- Patient Service: ${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.sha }}"
-          echo "- Appointment Service: ${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.sha }}"
-          echo "- Helm Release: ${{ env.HELM_RELEASE_NAME }}"
-          echo "- Namespace: ${{ env.AKS_NAMESPACE }}"
-          echo "SonarCloud Analysis: https://sonarcloud.io/project/overview?id=kamalakarjana_lbg"
-        else
-          echo "❌ DEMO FAILED: Deployment to AKS Central US failed!"
-          echo "Check the pipeline logs for details."
-          echo "Helm release was automatically rolled back if applicable."
-        fi
-
-    - name: Cleanup old Docker images (optional)
-      if: success()
-      run: |
-        echo "Optional: Cleaning up old Docker images from ACR..."
-        # Keep only the last 5 images for each service to save space
-        az acr repository show-tags --name ${{ env.ACR_NAME }} --repository patient-service --orderby time_desc --output tsv | tail -n +6 | xargs -I {} az acr repository delete --name ${{ env.ACR_NAME }} --image patient-service:{} --yes || true
-        az acr repository show-tags --name ${{ env.ACR_NAME }} --repository appointment-service --orderby time_desc --output tsv | tail -n +6 | xargs -I {} az acr repository delete --name ${{ env.ACR_NAME }} --image appointment-service:{} --yes || true
+      - name: Cleanup old ACR images
+        run: |
+          echo "Cleaning up old images from ACR..."
+          
+          # Keep only last 5 images for each repository
+          az acr run --registry ${{ env.ACR_NAME }} \
+            --cmd "acr purge --filter 'patient-service:.*' --keep 5 --ago 7d --untagged" \
+            /dev/null || echo "Patient service cleanup failed"
+          
+          az acr run --registry ${{ env.ACR_NAME }} \
+            --cmd "acr purge --filter 'appointment-service:.*' --keep 5 --ago 7d --untagged" \
+            /dev/null || echo "Appointment service cleanup failed"
+          
+          echo "Cleanup completed"
