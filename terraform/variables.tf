@@ -1,71 +1,53 @@
-variable "resource_group_name" {
-  description = "Name of the resource group"
-  type        = string
-  default     = "rg-lbg-demo-dev"  # Updated for demo
-}
-
-variable "location" {
-  description = "Azure region"
-  type        = string
-  default     = "eastus"
-}
-
-variable "aks_cluster_name" {
-  description = "Name of the AKS cluster"
-  type        = string
-  default     = "aks-lbg-demo-dev"  # Updated for demo
-}
-
-variable "acr_name" {
-  description = "Name of Azure Container Registry"
-  type        = string
-  default     = "acrlbgdemodev"  # Updated for demo
-}
-
-variable "use_existing_acr" {
-  description = "Whether to use existing ACR or create new one"
-  type        = bool
-  default     = false  # Changed to false to create new ACR
-}
-
 variable "environment" {
-  description = "Environment name"
+  description = "The environment name (dev, staging, prod)"
   type        = string
   default     = "dev"
 }
 
+variable "location" {
+  description = "The Azure region where resources will be created"
+  type        = string
+  default     = "UK South"
+}
+
 variable "subscription_id" {
-  description = "Azure Subscription ID"
+  description = "Azure subscription ID"
   type        = string
   sensitive   = true
 }
 
 variable "client_id" {
-  description = "Azure Client ID"
+  description = "Azure service principal client ID"
   type        = string
   sensitive   = true
 }
 
 variable "client_secret" {
-  description = "Azure Client Secret"
+  description = "Azure service principal client secret"
   type        = string
   sensitive   = true
 }
 
 variable "tenant_id" {
-  description = "Azure Tenant ID"
+  description = "Azure tenant ID"
   type        = string
   sensitive   = true
 }
 
+variable "use_existing_acr" {
+  description = "Whether to use an existing ACR or create a new one"
+  type        = bool
+  default     = false
+}
+
 variable "cluster_version" {
-  description = "AKS cluster version"
+  description = "Kubernetes version for AKS cluster"
   type        = string
-  default     = "1.27"
+  default     = "1.27.7"
 }
 
 variable "node_count" {
-  description = "Number of AKS nodes"
+  description = "Default number of nodes in AKS cluster"
   type        = number
   default     = 2
 }

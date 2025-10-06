@@ -219,6 +219,14 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+    - name: Create Main Resource Group if not exists
+      run: |
+        # Create the main resource group for your healthcare app
+        az group create \
+          --name ${{ env.RESOURCE_GROUP }} \
+          --location "UK South" \
+          --tags environment=dev project=healthcare-app branch=dev || echo "Resource group already exists or creation failed"
+
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:
@@ -228,7 +236,7 @@ jobs:
       id: init
       run: |
         cd terraform
-        terraform init -backend-config="resource_group_name=tfstate-rg-dev" -backend-config="storage_account_name=tfstatestorageacc9000dev" -backend-config="container_name=tfstate-dev" -backend-config="key=healthcare-app-dev.tfstate"
+        terraform init
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -258,12 +266,12 @@ jobs:
         cd terraform
         terraform plan \
           -var="environment=dev" \
+          -var="location=UK South" \
           -var="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
           -var="client_id=${{ secrets.AZURE_CLIENT_ID }}" \
           -var="client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
           -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
-          -var="use_existing_acr=true" \
-          -var="acr_resource_group_name=terraform-rg-dev" \
+          -var="use_existing_acr=false" \
           -no-color -input=false
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -277,12 +285,12 @@ jobs:
         cd terraform
         terraform apply -auto-approve -input=false \
           -var="environment=dev" \
+          -var="location=UK South" \
           -var="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
           -var="client_id=${{ secrets.AZURE_CLIENT_ID }}" \
           -var="client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
           -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
-          -var="use_existing_acr=true" \
-          -var="acr_resource_group_name=terraform-rg-dev"
+          -var="use_existing_acr=false"
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -360,7 +368,7 @@ jobs:
           namespace: ${{ env.AKS_NAMESPACE }}
         patientService:
           image:
-            repository: ${{ env.AZURE_CONTAINER_REGISTRY }}/patient-service
+            repository: patient-service
             tag: ${{ github.sha }}
           replicaCount: 2
           service:
@@ -375,7 +383,7 @@ jobs:
               cpu: "500m"
         appointmentService:
           image:
-            repository: ${{ env.AZURE_CONTAINER_REGISTRY }}/appointment-service
+            repository: appointment-service
             tag: ${{ github.sha }}
           replicaCount: 2
           service:
