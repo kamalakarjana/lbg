@@ -397,11 +397,22 @@ jobs:
         output: 'trivy-results-${{ matrix.service }}.sarif'
         severity: 'CRITICAL,HIGH'
 
+    - name: Check if Trivy SARIF file exists before upload
+      run: |
+        echo "Checking for Trivy SARIF files..."
+        ls -la *.sarif 2>/dev/null || echo "No SARIF files found - continuing pipeline"
+        if [ -f "trivy-results-${{ matrix.service }}.sarif" ]; then
+          echo "✅ SARIF file found: trivy-results-${{ matrix.service }}.sarif"
+        else
+          echo "⚠️ SARIF file not found: trivy-results-${{ matrix.service }}.sarif"
+        fi
+
     - name: Upload Trivy scan results to GitHub Security tab
       uses: github/codeql-action/upload-sarif@v3
       if: always()
       with:
         sarif_file: 'trivy-results-${{ matrix.service }}.sarif'
+      continue-on-error: true  # Don't fail the pipeline if SARIF upload fails
 
     - name: Push Docker images
       if: success()
