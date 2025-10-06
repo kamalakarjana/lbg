@@ -88,8 +88,19 @@ app.delete('/appointments/:id', (req, res) => {
   res.status(204).send();
 });
 
-app.listen(PORT, () => {
-  console.log(`Appointment service running on port ${PORT}`);
-});
+// Only start server if this file is run directly (not in tests)
+if (require.main === module) {
+  const server = app.listen(PORT, () => {
+    console.log(`Appointment service running on port ${PORT}`);
+  });
+  
+  // Graceful shutdown
+  process.on('SIGTERM', () => {
+    console.log('SIGTERM received, shutting down gracefully');
+    server.close(() => {
+      console.log('Process terminated');
+    });
+  });
+}
 
-module.exports = app;
+module.exports = app; // Export app without starting server

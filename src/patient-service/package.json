@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node patient-service.js",
     "dev": "nodemon patient-service.js",
-    "test": "jest --watchAll=false --coverage --passWithNoTests",
+    "test": "jest --watchAll=false --coverage --passWithNoTests --forceExit --detectOpenHandles",
     "test:watch": "jest --watch",
     "lint": "eslint ."
   },
@@ -34,6 +34,8 @@
       "text",
       "lcov",
       "html"
-    ]
+    ],
+    "forceExit": true,
+    "detectOpenHandles": true
   }
 }
