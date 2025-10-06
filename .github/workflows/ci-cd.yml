@@ -115,6 +115,7 @@ jobs:
           src/patient-service/coverage/
           src/appointment-service/coverage/
         retention-days: 30
+        overwrite: true
 
   # Security Scanning - UPDATED FOR CODEQL FIX
   security-scan:
@@ -203,6 +204,7 @@ jobs:
           name: helm-charts
           path: ${{ env.HELM_CHART_DIR }}/
           retention-days: 30
+          overwrite: true
 
   # Terraform Infrastructure as Code - CENTRAL US REGION (FIXED AUTHENTICATION)
   terraform:
@@ -377,6 +379,7 @@ jobs:
         name: terraform-outputs
         path: terraform/terraform-outputs.env
         retention-days: 30
+        overwrite: true
 
   # Build, Scan and Push Docker Images
   build-scan-push:
@@ -516,6 +519,7 @@ jobs:
         name: helm-values
         path: helm-values-${{ github.sha }}.yaml
         retention-days: 30
+        overwrite: true
 
   # ACR Vulnerability Scan Check
   acr-scan-check:
