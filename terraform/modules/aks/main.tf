@@ -1,7 +1,7 @@
 resource "azurerm_kubernetes_cluster" "aks" {
   name                = "healthcare-aks-cluster"
   location            = var.location
-  resource_group_name = "healthcare-app-rg"
+  resource_group_name = var.resource_group_name
   dns_prefix          = "healthcare-aks"
   kubernetes_version  = var.kubernetes_version
 
@@ -9,11 +9,9 @@ resource "azurerm_kubernetes_cluster" "aks" {
     name            = "default"
     node_count      = var.node_count
     vm_size         = var.vm_size
-    os_disk_size_gb = 30
+    os_disk_size_gb = var.os_disk_size_gb
     vnet_subnet_id  = var.subnet_id
     type            = "VirtualMachineScaleSets"
-    
-    
   }
 
   identity {
@@ -21,8 +19,8 @@ resource "azurerm_kubernetes_cluster" "aks" {
   }
 
   network_profile {
-    network_plugin = "azure"
-    network_policy = "azure"
+    network_plugin    = "azure"
+    network_policy    = "azure"
     load_balancer_sku = "standard"
   }
 

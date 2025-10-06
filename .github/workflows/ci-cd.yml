@@ -32,11 +32,11 @@ on:
         type: boolean
 
 env:
-  RESOURCE_GROUP_NAME: healthcare-app-rg-dev
+  RESOURCE_GROUP_NAME: tfstate-rg-dev
   ACR_NAME: kamalj2kkkk
   REGISTRY: kamalj2kkkk.azurecr.io
   NAMESPACE: healthcare-ns-dev
-  STORAGE_ACCOUNT_NAME: tfstatestorageacc160689
+  STORAGE_ACCOUNT_NAME: tfstatestorageacc9000dev
   AKS_CLUSTER_NAME: healthcare-aks-cluster-dev
   HELM_EXPERIMENTAL_OCI: 1
   HELM_CHART_DIR: kubernetes/helm
@@ -117,7 +117,6 @@ jobs:
         run: |
           echo "Installing dependencies for Patient Service..."
           cd src/patient-service
-          # Use npm install instead of npm ci to handle lock file mismatches
           npm install --no-audit --prefer-offline --no-fund
           cd ../..
 
@@ -125,7 +124,6 @@ jobs:
         run: |
           echo "Installing dependencies for Appointment Service..."
           cd src/appointment-service
-          # Use npm install instead of npm ci to handle lock file mismatches
           npm install --no-audit --prefer-offline --no-fund
           cd ../..
 
@@ -312,7 +310,7 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 🔧 FIX: Ensure backend resources exist before Terraform init
+      # 🔧 UPDATED: Ensure backend resources exist with correct values
       - name: Ensure Backend Resources Exist
         run: |
           echo "🛠️ Ensuring backend resources exist..."
@@ -330,7 +328,7 @@ jobs:
             echo "✅ Resource group already exists: ${{ env.RESOURCE_GROUP_NAME }}"
           fi
           
-          # Create storage account if not exists
+          # Create storage account if not exists - FIXED: Check in correct resource group
           if ! az storage account show --name ${{ env.STORAGE_ACCOUNT_NAME }} --resource-group ${{ env.RESOURCE_GROUP_NAME }} &>/dev/null; then
             echo "💾 Creating storage account: ${{ env.STORAGE_ACCOUNT_NAME }}"
             az storage account create \
@@ -344,15 +342,15 @@ jobs:
             echo "✅ Storage account already exists: ${{ env.STORAGE_ACCOUNT_NAME }}"
           fi
           
-          # Create container if not exists
-          if ! az storage container exists --account-name ${{ env.STORAGE_ACCOUNT_NAME }} --name tfstate --query exists --output tsv | grep -q true; then
-            echo "📁 Creating container: tfstate"
+          # Create container if not exists - FIXED: Correct container name
+          if ! az storage container exists --account-name ${{ env.STORAGE_ACCOUNT_NAME }} --name tfstate-dev --query exists --output tsv | grep -q true; then
+            echo "📁 Creating container: tfstate-dev"
             az storage container create \
               --account-name ${{ env.STORAGE_ACCOUNT_NAME }} \
-              --name tfstate \
+              --name tfstate-dev \
               --auth-mode login
           else
-            echo "✅ Container already exists: tfstate"
+            echo "✅ Container already exists: tfstate-dev"
           fi
           
           echo "🎉 Backend resources are ready for Terraform!"
@@ -362,8 +360,8 @@ jobs:
           terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} init \
             -backend-config="resource_group_name=${{ env.RESOURCE_GROUP_NAME }}" \
             -backend-config="storage_account_name=${{ env.STORAGE_ACCOUNT_NAME }}" \
-            -backend-config="container_name=tfstate" \
-            -backend-config="key=${{ needs.checkout_and_setup.outputs.environment }}.tfstate" \
+            -backend-config="container_name=tfstate-dev" \
+            -backend-config="key=healthcare-app-${{ needs.checkout_and_setup.outputs.environment }}.tfstate" \
             -input=false \
             -upgrade
 
@@ -375,7 +373,7 @@ jobs:
         run: |
           terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} plan \
             -input=false \
-            -var="resource_group_name=${{ env.RESOURCE_GROUP_NAME }}" \
+            -var="resource_group_name=healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }}" \
             -var="acr_name=${{ env.ACR_NAME }}" \
             -var="aks_cluster_name=${{ env.AKS_CLUSTER_NAME }}" \
             -var="environment=${{ needs.checkout_and_setup.outputs.environment }}" \
@@ -396,7 +394,7 @@ jobs:
         run: |
           echo "🔧 Configuring kubectl for AKS cluster: ${{ env.AKS_CLUSTER_NAME }}"
           az aks get-credentials \
-            --resource-group ${{ env.RESOURCE_GROUP_NAME }} \
+            --resource-group healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }} \
             --name ${{ env.AKS_CLUSTER_NAME }} \
             --overwrite-existing
           
@@ -437,7 +435,7 @@ jobs:
         run: |
           echo "🔧 Configuring kubectl for AKS cluster: ${{ env.AKS_CLUSTER_NAME }}"
           az aks get-credentials \
-            --resource-group ${{ env.RESOURCE_GROUP_NAME }} \
+            --resource-group healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }} \
             --name ${{ env.AKS_CLUSTER_NAME }} \
             --overwrite-existing
 
@@ -501,7 +499,7 @@ jobs:
       - name: Configure kubectl
         run: |
           az aks get-credentials \
-            --resource-group ${{ env.RESOURCE_GROUP_NAME }} \
+            --resource-group healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }} \
             --name ${{ env.AKS_CLUSTER_NAME }} \
             --overwrite-existing
 
