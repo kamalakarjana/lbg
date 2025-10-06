@@ -43,7 +43,7 @@ variable "use_existing_acr" {
 variable "cluster_version" {
   description = "Kubernetes version for AKS cluster"
   type        = string
-  default     = "1.27.7"
+  default     = "1.33.3"
 }
 
 variable "node_count" {
