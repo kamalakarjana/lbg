@@ -26,8 +26,8 @@ terraform {
   }
 }
 
-# Configure the Azure Provider
+# Configure the Azure Provider - NO EXPLICIT CREDENTIALS
 provider "azurerm" {
   features {}
-  # Remove explicit credentials - use environment variables instead
+  # Credentials will come from environment variables
 }

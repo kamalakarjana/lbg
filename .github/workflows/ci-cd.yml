@@ -204,7 +204,7 @@ jobs:
           path: ${{ env.HELM_CHART_DIR }}/
           retention-days: 30
 
-  # Terraform Infrastructure as Code - CENTRAL US REGION (FIXED)
+  # Terraform Infrastructure as Code - CENTRAL US REGION (FIXED AUTHENTICATION)
   terraform:
     name: 'Terraform - Central US'
     runs-on: ubuntu-latest
@@ -223,7 +223,7 @@ jobs:
       id: init
       run: |
         cd terraform
-        terraform init
+        terraform init -input=false
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -234,7 +234,7 @@ jobs:
       id: validate
       run: |
         cd terraform
-        terraform validate
+        terraform validate -json
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -244,8 +244,8 @@ jobs:
     - name: Terraform Format Check
       run: |
         cd terraform
-        terraform fmt -recursive
-        echo "Formatting completed - continuing pipeline"
+        terraform fmt -recursive -check
+        echo "Format check completed - continuing pipeline"
 
     - name: Terraform Plan
       id: plan
@@ -255,10 +255,6 @@ jobs:
         terraform plan \
           -var="environment=dev" \
           -var="location=Central US" \
-          -var="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
-          -var="client_id=${{ secrets.AZURE_CLIENT_ID }}" \
-          -var="client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
-          -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
           -no-color -input=false
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -272,18 +268,14 @@ jobs:
         cd terraform
         terraform apply -auto-approve -input=false \
           -var="environment=dev" \
-          -var="location=Central US" \
-          -var="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
-          -var="client_id=${{ secrets.AZURE_CLIENT_ID }}" \
-          -var="client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
-          -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}"
+          -var="location=Central US"
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
-    - name: Login to Azure for ACR attachment (Service Principal)
+    - name: Login to Azure for ACR attachment
       if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
       uses: azure/login@v1
       with:
@@ -332,8 +324,6 @@ jobs:
             echo "      - Role: AcrPull"
             echo "      - Assign access to: Managed Identity"
             echo "      - Select: $AKS_CLUSTER_NAME-agentpool"
-            echo "   5. Or run this command with higher privileges:"
-            echo "      az aks update -n $AKS_CLUSTER_NAME -g $RESOURCE_GROUP --attach-acr $ACR_NAME"
           )
         )
         
