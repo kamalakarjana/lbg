@@ -1,9 +1,9 @@
 terraform {
   backend "azurerm" {
-    resource_group_name  = "tfstate-rg"
-    storage_account_name = "tfstatestorageacc9000"
+    resource_group_name  = "tfstate-rg-dev"
+    storage_account_name = "tfstatestorageacc9000dev"
     container_name       = "tfstate-dev"
-    key                  = "lbg-demo-dev.tfstate"
+    key                  = "healthcare-app-dev.tfstate"
   }
 
   required_providers {
