@@ -310,7 +310,7 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      # 🔧 UPDATED: Ensure backend resources exist with correct values
+      # 🔧 Ensure backend resources exist
       - name: Ensure Backend Resources Exist
         run: |
           echo "🛠️ Ensuring backend resources exist..."
@@ -328,7 +328,7 @@ jobs:
             echo "✅ Resource group already exists: ${{ env.RESOURCE_GROUP_NAME }}"
           fi
           
-          # Create storage account if not exists - FIXED: Check in correct resource group
+          # Create storage account if not exists
           if ! az storage account show --name ${{ env.STORAGE_ACCOUNT_NAME }} --resource-group ${{ env.RESOURCE_GROUP_NAME }} &>/dev/null; then
             echo "💾 Creating storage account: ${{ env.STORAGE_ACCOUNT_NAME }}"
             az storage account create \
@@ -342,7 +342,7 @@ jobs:
             echo "✅ Storage account already exists: ${{ env.STORAGE_ACCOUNT_NAME }}"
           fi
           
-          # Create container if not exists - FIXED: Correct container name
+          # Create container if not exists
           if ! az storage container exists --account-name ${{ env.STORAGE_ACCOUNT_NAME }} --name tfstate-dev --query exists --output tsv | grep -q true; then
             echo "📁 Creating container: tfstate-dev"
             az storage container create \
@@ -367,10 +367,12 @@ jobs:
 
       - name: Terraform Validate
         run: |
+          echo "🔍 Validating Terraform configuration..."
           terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} validate
 
       - name: Terraform Plan
         run: |
+          echo "📋 Generating Terraform plan..."
           terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} plan \
             -input=false \
             -var="resource_group_name=healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }}" \
@@ -379,11 +381,15 @@ jobs:
             -var="environment=${{ needs.checkout_and_setup.outputs.environment }}" \
             -var="location=eastus" \
             -var="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
+            -var="os_disk_size_gb=30" \
+            -var="vm_size=Standard_B2s" \
+            -var="node_count=1" \
             -out=tfplan
 
       - name: Terraform Apply
         if: github.event_name != 'pull_request'
         run: |
+          echo "🚀 Applying Terraform configuration..."
           terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} apply \
             -auto-approve \
             -input=false \

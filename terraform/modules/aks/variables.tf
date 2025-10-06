@@ -1,28 +1,28 @@
 variable "resource_group_name" {
-  description = "healthcare-app-rg"
+  description = "Name of the resource group"
   type        = string
 }
 
 variable "location" {
-  description = "eastus"
+  description = "Azure region"
   type        = string
 }
 
 variable "environment" {
-  description = "dev"
+  description = "Environment name"
   type        = string
 }
 
 variable "project_name" {
-  description = "Healthcare-app"
+  description = "Project name for tagging"
   type        = string
-  default     = "healthcare"
+  default     = "healthcare-app"
 }
 
 variable "node_count" {
   description = "Number of AKS nodes"
   type        = number
-  default     = 2
+  default     = 1
 }
 
 variable "vm_size" {
@@ -34,7 +34,7 @@ variable "vm_size" {
 variable "kubernetes_version" {
   description = "Kubernetes version"
   type        = string
-  default     = "1.26.3"
+  default     = "1.33.3"
 }
 
 variable "subnet_id" {
@@ -50,5 +50,15 @@ variable "acr_id" {
 variable "tags" {
   description = "Resource tags"
   type        = map(string)
-  default     = {}
+  default = {
+    Environment = "dev"
+    Project     = "healthcare-app"
+    Team        = "devops"
+  }
+}
+
+variable "os_disk_size_gb" {
+  description = "The size of the OS disk for each node in GB"
+  type        = number
+  default     = 30
 }

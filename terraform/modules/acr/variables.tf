@@ -1,33 +1,30 @@
 variable "resource_group_name" {
-  description = "Resource group name for the dev environment"
+  description = "Name of the resource group"
   type        = string
-  default     = "healthcare-app-rg-dev"
 }
 
 variable "location" {
-  description = "Azure region to deploy resources"
+  description = "Azure region"
   type        = string
-  default     = "Central US"
 }
 
 variable "acr_name" {
-  description = "Azure Container Registry name for dev environment"
+  description = "Name of the Azure Container Registry"
   type        = string
-  default     = "healthcareappacr9000dev"
 }
 
 variable "sku" {
   description = "ACR SKU"
   type        = string
-  default     = "Basic"  # Change to "Standard" or "Premium" if needed
+  default     = "Basic"
 }
 
 variable "tags" {
-  description = "Resource tags for tracking environment and ownership"
+  description = "Resource tags"
   type        = map(string)
   default = {
-    environment = "dev"
-    owner       = "kamalakar"
-    project     = "healthcare-app"
+    Environment = "dev"
+    Project     = "healthcare-app"
+    Team        = "devops"
   }
 }
