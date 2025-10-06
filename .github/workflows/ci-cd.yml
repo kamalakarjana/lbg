@@ -425,8 +425,8 @@ jobs:
       uses: azure/docker-login@v1
       with:
         login-server: ${{ env.ACR_NAME }}.azurecr.io
-        username: ${{ secrets.ACR_USERNAME }}
-        password: ${{ secrets.ACR_PASSWORD }}
+        username: ${{ secrets.ACR_USERNAME_DEMO }}
+        password: ${{ secrets.ACR_PASSWORD_DEMO }}
 
     - name: Build Docker images
       run: |
@@ -617,6 +617,17 @@ jobs:
       run: |
         kubectl create namespace ${{ env.AKS_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
+    - name: Create Image Pull Secret
+      run: |
+        echo "Creating Kubernetes image pull secret..."
+        kubectl create secret docker-registry acr-credentials \
+          --namespace ${{ env.AKS_NAMESPACE }} \
+          --docker-server=${{ env.ACR_NAME }}.azurecr.io \
+          --docker-username=${{ secrets.ACR_USERNAME_DEMO }} \
+          --docker-password=${{ secrets.ACR_PASSWORD_DEMO }} \
+          --dry-run=client -o yaml | kubectl apply -f -
+        echo "✅ Image pull secret 'acr-credentials' created"
+
     - name: Deploy using Helm with minimal resources
       run: |
         cd ${{ env.HELM_CHART_DIR }}
@@ -628,6 +639,7 @@ jobs:
           --values ./healthcare-app/values-dev.yaml \
           --set global.namespace=${{ env.AKS_NAMESPACE }} \
           --set global.environment=dev \
+          --set imagePullSecrets[0].name=acr-credentials \
           --timeout 5m \
           --wait \
           --atomic
