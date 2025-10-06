@@ -1,15 +1,14 @@
-FROM node:14-alpine
+FROM node:18-alpine
 
 WORKDIR /app
-
 
 COPY package*.json ./
 RUN npm install --only=production
 
-COPY appointment-service.js .
+COPY . .
 
 EXPOSE 3001
 
 USER node
 
-CMD ["npm", "start"]
+CMD ["node", "appointment-service.js"]

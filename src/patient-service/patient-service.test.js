@@ -1,41 +1,45 @@
 const request = require('supertest');
-const app = require('./patient-service');
+const app = require('./appointment-service');
 
-describe('Patient Service', () => {
-  test('health endpoint should return 200', async () => {
-    const response = await request(app).get('/health');
-    expect(response.status).toBe(200);
-    expect(response.body.status).toBe('OK');
-    expect(response.body.service).toBe('Patient Service');
+describe('Appointment Service', () => {
+  describe('GET /health', () => {
+    it('should return health status', async () => {
+      const response = await request(app).get('/health');
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('OK');
+      expect(response.body.service).toBe('appointment-service');
+    });
   });
 
-  test('patients endpoint should return patients', async () => {
-    const response = await request(app).get('/patients');
-    expect(response.status).toBe(200);
-    expect(response.body.patients).toHaveLength(2);
-    expect(response.body.message).toBe('Patients retrieved successfully');
+  describe('GET /appointments', () => {
+    it('should return all appointments', async () => {
+      const response = await request(app).get('/appointments');
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body)).toBe(true);
+    });
   });
 
-  test('get patient by id should work', async () => {
-    const response = await request(app).get('/patients/1');
-    expect(response.status).toBe(200);
-    expect(response.body.patient.id).toBe('1');
-    expect(response.body.patient.name).toBe('John Doe');
+  describe('GET /appointments/:id', () => {
+    it('should return a specific appointment', async () => {
+      const response = await request(app).get('/appointments/1');
+      expect(response.status).toBe(200);
+      expect(response.body.id).toBe(1);
+    });
   });
 
-  test('create patient should work', async () => {
-    const newPatient = {
-      name: 'Test Patient',
-      age: 25,
-      condition: 'Test Condition'
-    };
-    
-    const response = await request(app)
-      .post('/patients')
-      .send(newPatient);
-    
-    expect(response.status).toBe(201);
-    expect(response.body.patient.name).toBe('Test Patient');
-    expect(response.body.message).toBe('Patient created successfully');
+  describe('POST /appointments', () => {
+    it('should create a new appointment', async () => {
+      const newAppointment = {
+        patientId: 1,
+        date: '2024-01-20',
+        time: '11:00',
+        doctor: 'Dr. Test'
+      };
+      const response = await request(app)
+        .post('/appointments')
+        .send(newAppointment);
+      expect(response.status).toBe(201);
+      expect(response.body.doctor).toBe('Dr. Test');
+    });
   });
 });

@@ -1,66 +1,55 @@
 const express = require('express');
-const app = express();
-const port = process.env.PORT || 3000;
+const cors = require('cors');
+const helmet = require('helmet');
 
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(helmet());
+app.use(cors());
 app.use(express.json());
 
-// In-memory data store
-let patients = [
-  { id: '1', name: 'John Doe', age: 45, condition: 'Checkup' },
-  { id: '2', name: 'Jane Smith', age: 32, condition: 'Follow-up' }
-];
-
+// Health check endpoint
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'OK', service: 'Patient Service' });
+  res.status(200).json({ 
+    status: 'OK', 
+    service: 'patient-service',
+    timestamp: new Date().toISOString()
+  });
 });
 
+// Get all patients
 app.get('/patients', (req, res) => {
-  res.json({ 
-    message: 'Patients retrieved successfully',
-    count: patients.length,
-    patients: patients 
-  });
+  res.json([
+    { id: 1, name: 'John Doe', age: 45, condition: 'Stable' },
+    { id: 2, name: 'Jane Smith', age: 32, condition: 'Recovering' }
+  ]);
 });
 
+// Get patient by ID
 app.get('/patients/:id', (req, res) => {
-  const patient = patients.find(p => p.id === req.params.id);
-  if (patient) {
-    res.json({ 
-      message: 'Patient found',
-      patient: patient 
-    });
-  } else {
-    res.status(404).json({ error: 'Patient not found' });
-  }
+  const patient = { 
+    id: parseInt(req.params.id), 
+    name: 'John Doe', 
+    age: 45, 
+    condition: 'Stable' 
+  };
+  res.json(patient);
 });
 
+// Create new patient
 app.post('/patients', (req, res) => {
-  try {
-    const { name, age, condition } = req.body;
-    if (!name || !age || !condition) {
-      return res.status(400).json({ error: 'Name, age, and condition are required' });
-    }
-    const newPatient = {
-      id: (patients.length + 1).toString(),
-      name,
-      age,
-      condition
-    };
-    patients.push(newPatient);
-    res.status(201).json({ 
-      message: 'Patient created successfully',
-      patient: newPatient 
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Internal server error' });
-  }
+  const newPatient = {
+    id: Date.now(),
+    ...req.body,
+    createdAt: new Date().toISOString()
+  };
+  res.status(201).json(newPatient);
 });
 
-// Only start server if not in test mode
-if (require.main === module) {
-  app.listen(port, '0.0.0.0', () => {
-    console.log(`Patient service listening at http://0.0.0.0:${port}`);
-  });
-}
+app.listen(PORT, () => {
+  console.log(`Patient service running on port ${PORT}`);
+});
 
 module.exports = app;

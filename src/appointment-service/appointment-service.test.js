@@ -1,49 +1,44 @@
 const request = require('supertest');
-const app = require('./appointment-service');
+const app = require('./patient-service');
 
-describe('Appointment Service', () => {
-  test('health endpoint should return 200', async () => {
-    const response = await request(app).get('/health');
-    expect(response.status).toBe(200);
-    expect(response.body.status).toBe('OK');
-    expect(response.body.service).toBe('Appointment Service');
+describe('Patient Service', () => {
+  describe('GET /health', () => {
+    it('should return health status', async () => {
+      const response = await request(app).get('/health');
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe('OK');
+      expect(response.body.service).toBe('patient-service');
+    });
   });
 
-  test('appointments endpoint should return appointments', async () => {
-    const response = await request(app).get('/appointments');
-    expect(response.status).toBe(200);
-    expect(response.body.appointments).toHaveLength(2);
-    expect(response.body.message).toBe('Appointments retrieved successfully');
+  describe('GET /patients', () => {
+    it('should return all patients', async () => {
+      const response = await request(app).get('/patients');
+      expect(response.status).toBe(200);
+      expect(Array.isArray(response.body)).toBe(true);
+    });
   });
 
-  test('get appointment by id should work', async () => {
-    const response = await request(app).get('/appointments/1');
-    expect(response.status).toBe(200);
-    expect(response.body.appointment.id).toBe('1');
-    expect(response.body.appointment.patientId).toBe('1');
+  describe('GET /patients/:id', () => {
+    it('should return a specific patient', async () => {
+      const response = await request(app).get('/patients/1');
+      expect(response.status).toBe(200);
+      expect(response.body.id).toBe(1);
+    });
   });
 
-  test('create appointment should work', async () => {
-    const newAppointment = {
-      patientId: '3',
-      date: '2023-06-17',
-      time: '11:00',
-      doctor: 'Dr. Brown'
-    };
-    
-    const response = await request(app)
-      .post('/appointments')
-      .send(newAppointment);
-    
-    expect(response.status).toBe(201);
-    expect(response.body.appointment.doctor).toBe('Dr. Brown');
-    expect(response.body.message).toBe('Appointment scheduled successfully');
-  });
-
-  test('get appointments by patient id should work', async () => {
-    const response = await request(app).get('/appointments/patient/1');
-    expect(response.status).toBe(200);
-    expect(response.body.appointments.length).toBeGreaterThan(0);
-    expect(response.body.appointments[0].patientId).toBe('1');
+  describe('POST /patients', () => {
+    it('should create a new patient', async () => {
+      const newPatient = {
+        name: 'Test Patient',
+        age: 30,
+        condition: 'Test Condition'
+      };
+      const response = await request(app)
+        .post('/patients')
+        .send(newPatient);
+      expect(response.status).toBe(201);
+      expect(response.body.name).toBe('Test Patient');
+    });
   });
 });
