@@ -37,5 +37,5 @@ variable "tenant_id" {
 variable "cluster_version" {
   description = "Kubernetes version for AKS cluster"
   type        = string
-  default     = "1.27.7"  # You can keep 1.27.7 as Central US should support it
+  default     = "1.26.7"
 }
