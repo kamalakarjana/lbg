@@ -1,7 +1,7 @@
 # New Resource Group for LBG demo cluster
 resource "azurerm_resource_group" "main" {
   name     = "rg-lbg-demo-${var.environment}"
-  location = var.location  # Will use "Central US" from variable
+  location = var.location
   tags = {
     environment = var.environment
     project     = "healthcare-lbg-demo"
@@ -36,7 +36,7 @@ resource "azurerm_kubernetes_cluster" "aks" {
   default_node_pool {
     name                = "default"
     node_count          = 1
-    vm_size             = "Standard_B2s"  # 2 vCPU, 4GB RAM - Minimum for AKS
+    vm_size             = "Standard_B2s"
     enable_auto_scaling = false
   }
 
@@ -57,9 +57,9 @@ resource "azurerm_kubernetes_cluster" "aks" {
   }
 }
 
-# Attach ACR to AKS
-resource "azurerm_role_assignment" "acr_attach" {
-  principal_id                     = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
-  role_definition_name            = "AcrPull"
-  scope                           = azurerm_container_registry.acr.id
-}
+# COMMENT OUT OR REMOVE THIS BLOCK - It's causing permission issues
+# resource "azurerm_role_assignment" "acr_attach" {
+#   principal_id                     = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
+#   role_definition_name            = "AcrPull"
+#   scope                           = azurerm_container_registry.acr.id
+# }

@@ -296,6 +296,56 @@ jobs:
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
+    - name: Manually Attach ACR to AKS
+      if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+      run: |
+        cd terraform
+        
+        # Get resource names from Terraform output
+        ACR_NAME=$(terraform output -raw acr_name)
+        AKS_CLUSTER_NAME=$(terraform output -raw aks_cluster_name)
+        RESOURCE_GROUP=$(terraform output -raw resource_group_name)
+        
+        echo "=== ACR Attachment Process ==="
+        echo "ACR Name: $ACR_NAME"
+        echo "AKS Cluster: $AKS_CLUSTER_NAME"
+        echo "Resource Group: $RESOURCE_GROUP"
+        
+        echo "Step 1: Attempting to attach ACR to AKS using Azure CLI..."
+        
+        # Method 1: Try using az aks update --attach-acr
+        az aks update -n $AKS_CLUSTER_NAME -g $RESOURCE_GROUP --attach-acr $ACR_NAME && (
+          echo "✅ SUCCESS: ACR automatically attached to AKS using Azure CLI"
+        ) || (
+          echo "⚠️  Automatic attachment failed. Trying alternative method..."
+          
+          # Method 2: Manual role assignment using Azure CLI
+          echo "Step 2: Getting AKS cluster identity..."
+          CLIENT_ID=$(az aks show -g $RESOURCE_GROUP -n $AKS_CLUSTER_NAME --query identity.principalId -o tsv)
+          
+          echo "Step 3: Assigning AcrPull role manually..."
+          az role assignment create \
+            --assignee $CLIENT_ID \
+            --role AcrPull \
+            --scope $(az acr show -n $ACR_NAME -g $RESOURCE_GROUP --query id -o tsv) && (
+            echo "✅ SUCCESS: ACR role assigned manually"
+          ) || (
+            echo "❌ Both automatic and manual attachment methods failed."
+            echo "📋 Manual steps required:"
+            echo "   1. Go to Azure Portal"
+            echo "   2. Navigate to your ACR: $ACR_NAME"
+            echo "   3. Go to Access Control (IAM)"
+            echo "   4. Add role assignment:"
+            echo "      - Role: AcrPull"
+            echo "      - Assign access to: Managed Identity"
+            echo "      - Select: $AKS_CLUSTER_NAME-agentpool"
+            echo "   5. Or run this command with higher privileges:"
+            echo "      az aks update -n $AKS_CLUSTER_NAME -g $RESOURCE_GROUP --attach-acr $ACR_NAME"
+          )
+        )
+        
+        echo "=== ACR Attachment Process Complete ==="
+
   # Build, Scan and Push Docker Images
   build-scan-push:
     name: 'Build, Scan and Push Docker Images'
