@@ -13,5 +13,5 @@ variable "location" {
 variable "cluster_version" {
   description = "Kubernetes version for AKS cluster"
   type        = string
-  default     = "1.26.7"
+  default     = "1.33.3"
 }
