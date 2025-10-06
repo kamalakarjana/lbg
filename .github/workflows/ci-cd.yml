@@ -271,7 +271,6 @@ jobs:
           -var="client_id=${{ secrets.AZURE_CLIENT_ID }}" \
           -var="client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
           -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
-          -var="use_existing_acr=false" \
           -no-color -input=false
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -289,8 +288,7 @@ jobs:
           -var="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
           -var="client_id=${{ secrets.AZURE_CLIENT_ID }}" \
           -var="client_secret=${{ secrets.AZURE_CLIENT_SECRET }}" \
-          -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
-          -var="use_existing_acr=false"
+          -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}"
       env:
         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -323,23 +321,30 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+    - name: Get ACR credentials from Terraform output
+      run: |
+        cd terraform
+        ACR_NAME=$(terraform output -raw acr_name)
+        echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
+        echo "Using ACR: $ACR_NAME"
+
     - name: Login to ACR
       uses: azure/docker-login@v1
       with:
-        login-server: ${{ env.AZURE_CONTAINER_REGISTRY }}
+        login-server: ${{ env.ACR_NAME }}.azurecr.io
         username: ${{ secrets.ACR_USERNAME }}
         password: ${{ secrets.ACR_PASSWORD }}
 
     - name: Build Docker images
       run: |
         cd src/${{ matrix.service }}
-        docker build -t ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ matrix.service }}:${{ github.sha }} .
-        docker build -t ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ matrix.service }}:dev .
+        docker build -t ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:${{ github.sha }} .
+        docker build -t ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:dev .
 
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@master
       with:
-        image-ref: '${{ env.AZURE_CONTAINER_REGISTRY }}/${{ matrix.service }}:${{ github.sha }}'
+        image-ref: '${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:${{ github.sha }}'
         format: 'sarif'
         output: 'trivy-results-${{ matrix.service }}.sarif'
         severity: 'CRITICAL,HIGH'
@@ -353,22 +358,26 @@ jobs:
     - name: Push Docker images
       if: success()
       run: |
-        docker push ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ matrix.service }}:${{ github.sha }}
-        docker push ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ matrix.service }}:dev
+        docker push ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:${{ github.sha }}
+        docker push ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:dev
 
     - name: Prepare Helm values with image tags
       if: success()
       run: |
+        # Get ACR name from Terraform output
+        cd terraform
+        ACR_NAME=$(terraform output -raw acr_name)
+        
         # Create dynamic values file with current image tags
         cat > helm-values-${{ github.sha }}.yaml << EOF
         global:
-          imageRegistry: ${{ env.AZURE_CONTAINER_REGISTRY }}
+          imageRegistry: $ACR_NAME.azurecr.io
           tag: ${{ github.sha }}
           environment: dev
           namespace: ${{ env.AKS_NAMESPACE }}
         patientService:
           image:
-            repository: patient-service
+            repository: $ACR_NAME.azurecr.io/patient-service
             tag: ${{ github.sha }}
           replicaCount: 2
           service:
@@ -383,7 +392,7 @@ jobs:
               cpu: "500m"
         appointmentService:
           image:
-            repository: appointment-service
+            repository: $ACR_NAME.azurecr.io/appointment-service
             tag: ${{ github.sha }}
           replicaCount: 2
           service:
@@ -450,6 +459,12 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+    - name: Get ACR name from Terraform
+      run: |
+        cd terraform
+        ACR_NAME=$(terraform output -raw acr_name)
+        echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
+
     - name: Wait for ACR scan completion
       run: |
         echo "Waiting for ACR vulnerability scans to complete..."
@@ -457,9 +472,9 @@ jobs:
 
     - name: Check ACR scan results
       run: |
-        echo "Checking ACR scan results..."
-        az acr repository show -n ${{ secrets.ACR_NAME }} --image patient-service:dev || echo "Patient service image not found"
-        az acr repository show -n ${{ secrets.ACR_NAME }} --image appointment-service:dev || echo "Appointment service image not found"
+        echo "Checking ACR scan results for ${{ env.ACR_NAME }}..."
+        az acr repository show -n ${{ env.ACR_NAME }} --image patient-service:dev || echo "Patient service image not found"
+        az acr repository show -n ${{ env.ACR_NAME }} --image appointment-service:dev || echo "Appointment service image not found"
         echo "ACR vulnerability scans completed successfully for dev environment"
 
   # Deploy to AKS Dev using Helm
@@ -489,6 +504,15 @@ jobs:
       uses: azure/login@v1
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Get AKS cluster info from Terraform
+      run: |
+        cd terraform
+        AKS_CLUSTER_NAME=$(terraform output -raw aks_cluster_name)
+        RESOURCE_GROUP=$(terraform output -raw resource_group_name)
+        echo "AKS_CLUSTER_NAME=$AKS_CLUSTER_NAME" >> $GITHUB_ENV
+        echo "RESOURCE_GROUP=$RESOURCE_GROUP" >> $GITHUB_ENV
+        echo "Using AKS cluster: $AKS_CLUSTER_NAME in resource group: $RESOURCE_GROUP"
 
     - name: Get AKS credentials
       run: |
@@ -599,8 +623,8 @@ jobs:
         if [ "${{ needs.deploy-to-aks-dev.result }}" == "success" ]; then
           echo "🚀 Deployment to AKS dev environment completed successfully!"
           echo "Services deployed using Helm:"
-          echo "- Patient Service: ${{ env.AZURE_CONTAINER_REGISTRY }}/patient-service:${{ github.sha }}"
-          echo "- Appointment Service: ${{ env.AZURE_CONTAINER_REGISTRY }}/appointment-service:${{ github.sha }}"
+          echo "- Patient Service: ${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.sha }}"
+          echo "- Appointment Service: ${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.sha }}"
           echo "Helm Release: ${{ env.HELM_RELEASE_NAME }}"
           echo "Namespace: ${{ env.AKS_NAMESPACE }}"
           echo "SonarCloud Analysis: https://sonarcloud.io/project/overview?id=kamalakarjana_lbg"
@@ -615,5 +639,5 @@ jobs:
       run: |
         echo "Cleaning up old Docker images from ACR..."
         # Keep only the last 10 images for each service
-        az acr repository show-tags --name ${{ secrets.ACR_NAME }} --repository patient-service --orderby time_desc --output tsv | tail -n +11 | xargs -I {} az acr repository delete --name ${{ secrets.ACR_NAME }} --image patient-service:{} --yes || true
-        az acr repository show-tags --name ${{ secrets.ACR_NAME }} --repository appointment-service --orderby time_desc --output tsv | tail -n +11 | xargs -I {} az acr repository delete --name ${{ secrets.ACR_NAME }} --image appointment-service:{} --yes || true
+        az acr repository show-tags --name ${{ env.ACR_NAME }} --repository patient-service --orderby time_desc --output tsv | tail -n +11 | xargs -I {} az acr repository delete --name ${{ env.ACR_NAME }} --image patient-service:{} --yes || true
+        az acr repository show-tags --name ${{ env.ACR_NAME }} --repository appointment-service --orderby time_desc --output tsv | tail -n +11 | xargs -I {} az acr repository delete --name ${{ env.ACR_NAME }} --image appointment-service:{} --yes || true

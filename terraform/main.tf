@@ -1,5 +1,5 @@
 # New Resource Group for LBG demo cluster
-resource "azurerm_resource_group" "lbg_demo" {
+resource "azurerm_resource_group" "main" {
   name     = "rg-lbg-demo-${var.environment}"
   location = var.location
   tags = {
@@ -11,10 +11,10 @@ resource "azurerm_resource_group" "lbg_demo" {
 }
 
 # Create new ACR for demo
-resource "azurerm_container_registry" "lbg_demo_acr" {
+resource "azurerm_container_registry" "acr" {
   name                = "acrlbgdemo${var.environment}"
-  resource_group_name = azurerm_resource_group.lbg_demo.name
-  location            = azurerm_resource_group.lbg_demo.location
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
   sku                 = "Basic"
   admin_enabled       = true
 
@@ -25,10 +25,10 @@ resource "azurerm_container_registry" "lbg_demo_acr" {
 }
 
 # Create new AKS Cluster for demo
-resource "azurerm_kubernetes_cluster" "lbg_demo_aks" {
+resource "azurerm_kubernetes_cluster" "aks" {
   name                = "aks-lbg-demo-${var.environment}"
-  location            = azurerm_resource_group.lbg_demo.location
-  resource_group_name = azurerm_resource_group.lbg_demo.name
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
   dns_prefix          = "lbg-demo-${var.environment}"
   kubernetes_version  = var.cluster_version
 
@@ -60,8 +60,7 @@ resource "azurerm_kubernetes_cluster" "lbg_demo_aks" {
 
 # Attach ACR to AKS
 resource "azurerm_role_assignment" "acr_attach" {
-  principal_id                     = azurerm_kubernetes_cluster.lbg_demo_aks.kubelet_identity[0].object_id
+  principal_id                     = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
   role_definition_name            = "AcrPull"
-  scope                           = azurerm_container_registry.lbg_demo_acr.id
-  skip_service_principal_auth_check = true
+  scope                           = azurerm_container_registry.acr.id
 }
