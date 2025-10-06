@@ -1,4 +1,4 @@
-name: Healthcare App CI/CD
+name: Healthcare App CI/CD - Demo Optimized
 
 on:
   push:
@@ -204,9 +204,9 @@ jobs:
           path: ${{ env.HELM_CHART_DIR }}/
           retention-days: 30
 
-  # Terraform Infrastructure as Code
+  # Terraform Infrastructure as Code - MINIMAL RESOURCES
   terraform:
-    name: 'Terraform'
+    name: 'Terraform - Minimal Demo'
     runs-on: ubuntu-latest
     needs: [code-quality-scan, security-scan, helm-dependencies]
     
@@ -296,7 +296,7 @@ jobs:
         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
-  # Build, Scan and Push Docker Images
+  # Build, Scan and Push Docker Images - MINIMAL RESOURCES
   build-scan-push:
     name: 'Build, Scan and Push Docker Images'
     runs-on: ubuntu-latest
@@ -362,14 +362,14 @@ jobs:
         docker push ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:${{ github.sha }}
         docker push ${{ env.ACR_NAME }}.azurecr.io/${{ matrix.service }}:dev
 
-    - name: Prepare Helm values with image tags
+    - name: Prepare Helm values with MINIMAL resources
       if: success()
       run: |
         # Get ACR name from Terraform output
         cd terraform
         ACR_NAME=$(terraform output -raw acr_name)
         
-        # Create dynamic values file with current image tags
+        # Create dynamic values file with MINIMAL resources for demo
         cat > helm-values-${{ github.sha }}.yaml << EOF
         global:
           imageRegistry: $ACR_NAME.azurecr.io
@@ -380,49 +380,36 @@ jobs:
           image:
             repository: $ACR_NAME.azurecr.io/patient-service
             tag: ${{ github.sha }}
-          replicaCount: 2
+          replicaCount: 1
           service:
             port: 3000
             targetPort: 3000
           resources:
             requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
               memory: "256Mi"
               cpu: "250m"
-            limits:
-              memory: "512Mi"
-              cpu: "500m"
         appointmentService:
           image:
             repository: $ACR_NAME.azurecr.io/appointment-service
             tag: ${{ github.sha }}
-          replicaCount: 2
+          replicaCount: 1
           service:
             port: 3001
             targetPort: 3001
           resources:
             requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
               memory: "256Mi"
               cpu: "250m"
-            limits:
-              memory: "512Mi"
-              cpu: "500m"
         ingress:
-          enabled: true
-          className: "azure-application-gateway"
-          annotations:
-            appgw.ingress.kubernetes.io/ssl-redirect: "true"
-          hosts:
-            - host: healthcare-dev.example.com
-              paths:
-                - path: /patient
-                  pathType: Prefix
-                - path: /appointment
-                  pathType: Prefix
+          enabled: false
         autoscaling:
-          enabled: true
-          minReplicas: 2
-          maxReplicas: 10
-          targetCPUUtilizationPercentage: 80
+          enabled: false
         configMaps:
           patient-service-config: |
             NODE_ENV=production
@@ -434,7 +421,7 @@ jobs:
             DB_HOST=appointment-db-dev
         EOF
         
-        echo "Generated Helm values file:"
+        echo "Generated Helm values file with MINIMAL resources:"
         cat helm-values-${{ github.sha }}.yaml
 
     - name: Upload Helm values as artifact
@@ -469,7 +456,7 @@ jobs:
     - name: Wait for ACR scan completion
       run: |
         echo "Waiting for ACR vulnerability scans to complete..."
-        sleep 120
+        sleep 60  # Reduced wait time for demo
 
     - name: Check ACR scan results
       run: |
@@ -478,9 +465,9 @@ jobs:
         az acr repository show -n ${{ env.ACR_NAME }} --image appointment-service:dev || echo "Appointment service image not found"
         echo "ACR vulnerability scans completed successfully for dev environment"
 
-  # Deploy to AKS Dev using Helm
+  # Deploy to AKS Dev using Helm - MINIMAL RESOURCES
   deploy-to-aks-dev:
-    name: 'Deploy to AKS Dev using Helm'
+    name: 'Deploy to AKS Dev - Minimal Demo'
     runs-on: ubuntu-latest
     needs: [acr-scan-check, build-scan-push]
     if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
@@ -531,25 +518,25 @@ jobs:
       run: |
         kubectl create namespace ${{ env.AKS_NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
 
-    - name: Deploy using Helm
+    - name: Deploy using Helm with minimal resources
       run: |
         cd ${{ env.HELM_CHART_DIR }}
         
-        # Install or upgrade the release
+        # Install or upgrade the release with minimal resources
         helm upgrade --install ${{ env.HELM_RELEASE_NAME }} ./healthcare-app \
           --namespace ${{ env.AKS_NAMESPACE }} \
           --values ../../helm-values-${{ github.sha }}.yaml \
           --values ./healthcare-app/values-dev.yaml \
           --set global.namespace=${{ env.AKS_NAMESPACE }} \
           --set global.environment=dev \
-          --timeout 10m \
+          --timeout 5m \
           --wait \
           --atomic
 
     - name: Wait for deployments to be ready
       run: |
-        kubectl wait --for=condition=available --timeout=600s deployment/patient-service -n ${{ env.AKS_NAMESPACE }}
-        kubectl wait --for=condition=available --timeout=600s deployment/appointment-service -n ${{ env.AKS_NAMESPACE }}
+        kubectl wait --for=condition=available --timeout=300s deployment/patient-service -n ${{ env.AKS_NAMESPACE }}
+        kubectl wait --for=condition=available --timeout=300s deployment/appointment-service -n ${{ env.AKS_NAMESPACE }}
 
     - name: Verify deployment
       run: |
@@ -560,10 +547,6 @@ jobs:
         kubectl get deployments -n ${{ env.AKS_NAMESPACE }}
         echo "=== Services ==="
         kubectl get services -n ${{ env.AKS_NAMESPACE }}
-        echo "=== HPA ==="
-        kubectl get hpa -n ${{ env.AKS_NAMESPACE }}
-        echo "=== Ingress ==="
-        kubectl get ingress -n ${{ env.AKS_NAMESPACE }}
         echo "=== Pods ==="
         kubectl get pods -n ${{ env.AKS_NAMESPACE }} -o wide
 
@@ -579,35 +562,27 @@ jobs:
         echo "Testing Appointment Service health endpoint on pod: $APPOINTMENT_POD"
         kubectl exec $APPOINTMENT_POD -n ${{ env.AKS_NAMESPACE }} -- curl -f http://localhost:3001/health || echo "Appointment service health check failed"
 
-    - name: Run integration tests
+    - name: Run basic integration tests
       run: |
-        echo "Running integration tests against dev environment..."
+        echo "Running basic integration tests against dev environment..."
         
-        # Get service external IPs
-        PATIENT_SERVICE_IP=$(kubectl get service patient-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}') || echo "No patient service IP"
-        APPOINTMENT_SERVICE_IP=$(kubectl get service appointment-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}') || echo "No appointment service IP"
+        # Test services internally
+        PATIENT_POD=$(kubectl get pods -l app=patient-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.items[0].metadata.name}')
+        APPOINTMENT_POD=$(kubectl get pods -l app=appointment-service -n ${{ env.AKS_NAMESPACE }} -o jsonpath='{.items[0].metadata.name}')
         
-        echo "Patient Service IP: $PATIENT_SERVICE_IP"
-        echo "Appointment Service IP: $APPOINTMENT_SERVICE_IP"
+        echo "Testing Patient Service internally..."
+        kubectl exec $PATIENT_POD -n ${{ env.AKS_NAMESPACE }} -- curl -f http://localhost:3000/health || echo "Patient service internal check failed"
         
-        # Test external endpoints (if available)
-        if [ ! -z "$PATIENT_SERVICE_IP" ] && [ "$PATIENT_SERVICE_IP" != "No patient service IP" ]; then
-          echo "Testing Patient Service externally..."
-          curl -f http://$PATIENT_SERVICE_IP/health || echo "External patient service health check failed"
-        fi
+        echo "Testing Appointment Service internally..."
+        kubectl exec $APPOINTMENT_POD -n ${{ env.AKS_NAMESPACE }} -- curl -f http://localhost:3001/health || echo "Appointment service internal check failed"
         
-        if [ ! -z "$APPOINTMENT_SERVICE_IP" ] && [ "$APPOINTMENT_SERVICE_IP" != "No appointment service IP" ]; then
-          echo "Testing Appointment Service externally..."
-          curl -f http://$APPOINTMENT_SERVICE_IP/health || echo "External appointment service health check failed"
-        fi
-        
-        echo "Integration tests completed successfully"
+        echo "Basic integration tests completed successfully"
 
     - name: Rollback on failure
       if: failure()
       run: |
         echo "Deployment failed, rolling back Helm release..."
-        helm rollback ${{ env.HELM_RELEASE_NAME }} 0 --namespace ${{ env.AKS_NAMESPACE }} --timeout 5m
+        helm rollback ${{ env.HELM_RELEASE_NAME }} 0 --namespace ${{ env.AKS_NAMESPACE }} --timeout 3m
         exit 1
 
   # Post-deployment cleanup and notifications
@@ -622,23 +597,26 @@ jobs:
       if: always()
       run: |
         if [ "${{ needs.deploy-to-aks-dev.result }}" == "success" ]; then
-          echo "🚀 Deployment to AKS dev environment completed successfully!"
-          echo "Services deployed using Helm:"
+          echo "🚀 DEMO SUCCESS: Deployment to AKS dev environment completed successfully!"
+          echo "Minimal Resources Used:"
+          echo "- AKS: 1 node (Standard_B1s)"
+          echo "- ACR: Basic SKU"
+          echo "- Services: 1 replica each with minimal CPU/Memory"
           echo "- Patient Service: ${{ env.ACR_NAME }}.azurecr.io/patient-service:${{ github.sha }}"
           echo "- Appointment Service: ${{ env.ACR_NAME }}.azurecr.io/appointment-service:${{ github.sha }}"
-          echo "Helm Release: ${{ env.HELM_RELEASE_NAME }}"
-          echo "Namespace: ${{ env.AKS_NAMESPACE }}"
+          echo "- Helm Release: ${{ env.HELM_RELEASE_NAME }}"
+          echo "- Namespace: ${{ env.AKS_NAMESPACE }}"
           echo "SonarCloud Analysis: https://sonarcloud.io/project/overview?id=kamalakarjana_lbg"
         else
-          echo "❌ Deployment to AKS dev environment failed!"
+          echo "❌ DEMO FAILED: Deployment to AKS dev environment failed!"
           echo "Check the pipeline logs for details."
           echo "Helm release was automatically rolled back."
         fi
 
-    - name: Cleanup old Docker images
+    - name: Cleanup old Docker images (optional)
       if: success()
       run: |
-        echo "Cleaning up old Docker images from ACR..."
-        # Keep only the last 10 images for each service
-        az acr repository show-tags --name ${{ env.ACR_NAME }} --repository patient-service --orderby time_desc --output tsv | tail -n +11 | xargs -I {} az acr repository delete --name ${{ env.ACR_NAME }} --image patient-service:{} --yes || true
-        az acr repository show-tags --name ${{ env.ACR_NAME }} --repository appointment-service --orderby time_desc --output tsv | tail -n +11 | xargs -I {} az acr repository delete --name ${{ env.ACR_NAME }} --image appointment-service:{} --yes || true
+        echo "Optional: Cleaning up old Docker images from ACR..."
+        # Keep only the last 5 images for each service to save space
+        az acr repository show-tags --name ${{ env.ACR_NAME }} --repository patient-service --orderby time_desc --output tsv | tail -n +6 | xargs -I {} az acr repository delete --name ${{ env.ACR_NAME }} --image patient-service:{} --yes || true
+        az acr repository show-tags --name ${{ env.ACR_NAME }} --repository appointment-service --orderby time_desc --output tsv | tail -n +6 | xargs -I {} az acr repository delete --name ${{ env.ACR_NAME }} --image appointment-service:{} --yes || true

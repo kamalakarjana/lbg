@@ -34,26 +34,10 @@ variable "tenant_id" {
   sensitive   = true
 }
 
-variable "use_existing_acr" {
-  description = "Whether to use an existing ACR or create a new one"
-  type        = bool
-  default     = false
-}
-
 variable "cluster_version" {
   description = "Kubernetes version for AKS cluster"
   type        = string
   default     = "1.33.3"
 }
 
-variable "node_count" {
-  description = "Default number of nodes in AKS cluster"
-  type        = number
-  default     = 2
-}
-
-variable "node_vm_size" {
-  description = "VM size for AKS nodes"
-  type        = string
-  default     = "Standard_B2s"
-}
+# Removed node_count and node_vm_size since they're hardcoded in main.tf for minimal setup

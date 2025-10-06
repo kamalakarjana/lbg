@@ -10,12 +10,12 @@ resource "azurerm_resource_group" "main" {
   }
 }
 
-# Create new ACR for demo
+# Create new ACR for demo - Basic SKU (cheapest)
 resource "azurerm_container_registry" "acr" {
   name                = "acrlbgdemo${var.environment}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
-  sku                 = "Basic"
+  sku                 = "Basic"  # Cheapest option
   admin_enabled       = true
 
   tags = {
@@ -24,7 +24,7 @@ resource "azurerm_container_registry" "acr" {
   }
 }
 
-# Create new AKS Cluster for demo
+# Create new AKS Cluster for demo - Minimal configuration
 resource "azurerm_kubernetes_cluster" "aks" {
   name                = "aks-lbg-demo-${var.environment}"
   location            = azurerm_resource_group.main.location
@@ -32,21 +32,22 @@ resource "azurerm_kubernetes_cluster" "aks" {
   dns_prefix          = "lbg-demo-${var.environment}"
   kubernetes_version  = var.cluster_version
 
+  # Minimal node pool configuration
   default_node_pool {
     name                = "default"
-    node_count          = var.node_count
-    vm_size             = var.node_vm_size
-    enable_auto_scaling = true
-    min_count           = 1
-    max_count           = 3
+    node_count          = 1  # Single node only
+    vm_size             = "Standard_B1s"  # Smallest burstable instance
+    enable_auto_scaling = false  # Disable auto-scaling to save costs
   }
 
+  # Use system-assigned identity (free)
   identity {
     type = "SystemAssigned"
   }
 
+  # Basic network profile
   network_profile {
-    network_plugin = "kubenet"
+    network_plugin = "kubenet"  # Simpler and cheaper than Azure CNI
     network_policy = "calico"
   }
 
