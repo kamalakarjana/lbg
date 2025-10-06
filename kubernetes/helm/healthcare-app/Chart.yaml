@@ -4,3 +4,8 @@ description: A Helm chart for Healthcare Application with Patient and Appointmen
 type: application
 version: 0.1.0
 appVersion: "2.1.0"
+
+# Add these required fields
+maintainers:
+  - name: kamalakar
+    email: kamalakarj78@gmail.com
