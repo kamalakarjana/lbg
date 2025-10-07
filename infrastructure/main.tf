@@ -1,10 +1,10 @@
 terraform {
   required_version = ">= 1.0"
   backend "azurerm" {
-    resource_group_name  = "healthcare-app-rg"
-    storage_account_name = "tfstatestorageacc160689"
-    container_name       = "tfstate"
-    key                  = "terraform.tfstate"
+    resource_group_name  = "rg-lbg-demo-dev"
+    storage_account_name = "tfstatestorageacc0212"
+    container_name       = "lbg-02-12-1994"
+    key                  = "terraform.lbg-02-12-1994"
   }
 
   required_providers {
@@ -79,7 +79,7 @@ resource "azurerm_public_ip" "pip" {
   resource_group_name = module.resource_group.name
   allocation_method   = "Static"
   sku                 = "Standard"
-  domain_name_label   = "${var.environment}-healthcare-ns"
+  domain_name_label   = "${var.environment}-lbg-ns"
 
   tags = {
     environment = var.environment

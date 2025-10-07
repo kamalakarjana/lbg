@@ -1,7 +1,7 @@
 {
   "name": "appointment-service",
   "version": "1.0.0",
-  "description": "Appointment Microservice for Healthcare App",
+  "description": "Appointment Microservice for lbg App",
   "main": "appointment-service.js",
   "scripts": {
     "start": "node appointment-service.js",
@@ -25,7 +25,7 @@
   },
   "keywords": [
     "microservice",
-    "healthcare",
+    "lbg",
     "appointment"
   ],
   "directories": {

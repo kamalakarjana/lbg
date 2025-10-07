@@ -1,9 +1,9 @@
 global:
-  namespace: healthcare-ns
+  namespace: lbg-ns
   environment: dev
   
 image:
-  registry: healthcareappacr160689.azurecr.io
+  registry: acrlbgdemodev.azurecr.io
   pullPolicy: IfNotPresent
   
 patientService:
@@ -49,7 +49,7 @@ ingress:
   className: "azure/application-gateway"
   annotations: {}
   hosts:
-    - host: healthcare-app.dev.example.com
+    - host: lbg-app.dev.example.com
       paths:
         - path: /
           pathType: Prefix

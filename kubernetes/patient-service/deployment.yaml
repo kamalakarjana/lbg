@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: patient-service
-  namespace: healthcare-ns
+  namespace: lbg-ns
   labels:
     app: patient-service
 spec:
@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: patient-service
-        image: healthcareappacr160689.azurecr.io/patient-service:latest
+        image: acrlbgdemodev.azurecr.io/patient-service:latest
         ports:
         - containerPort: 3000
         env:

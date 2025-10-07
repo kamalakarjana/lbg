@@ -1,19 +1,19 @@
 variable "resource_group_name" {
   description = "The name of the resource group"
   type        = string
-  default     = "healthcare-app-rg"
+  default     = "rg-lbg-demo-dev"
 }
 
 variable "azurerm_kubernetes_cluster" {
   description = "The name of the resource group"
   type        = string
-  default     = "healthcare-aks-cluster"
+  default     = "lgb-aks-cluster"
 }
 
 variable "location" {
   description = "The Azure region to deploy to"
   type        = string
-  default     = "East US"
+  default     = "Central US"
 }
 
 variable "environment" {
@@ -28,25 +28,25 @@ variable "environment" {
 variable "acr_name" {
   description = "The name of the Azure Container Registry"
   type        = string
-  default     = "healthcareappacr160689"
+  default     = "acrlbgdemodev"
 }
 
 variable "aks_cluster_name" {
   description = "The name of the AKS cluster"
   type        = string
-  default     = "healthcare-aks-cluster"
+  default     = "lgb-aks-cluster"
 }
 
 variable "vnet_name" {
   description = "The name of the virtual network"
   type        = string
-  default     = "vnet-dev-healthcare-app"
+  default     = "vnet-dev-lbg-app"
 }
 
 variable "public_ip_name" {
   description = "The name of the public IP address for the load balancer"
   type        = string
-  default     = "pip-lb-dev-healthcare-app"
+  default     = "lbg-dev-lbg-app"
 }
 
 variable "node_count" {

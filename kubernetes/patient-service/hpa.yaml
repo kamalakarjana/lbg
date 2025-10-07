@@ -2,7 +2,7 @@ apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
   name: patient-service-hpa
-  namespace: healthcare-ns
+  namespace: lbg-ns
 spec:
   scaleTargetRef:
     apiVersion: apps/v1

@@ -23,7 +23,7 @@ ingress:
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
   hosts:
-    - host: healthcare-app.staging.example.com
+    - host: lbg-app.staging.example.com
 
 persistence:
   enabled: true
@@ -32,5 +32,5 @@ persistence:
 
 image:
   credentials:
-    username: "healthcareappacr160689"
-    password: "Si+v8gudBdVNH2GXguwoZqJq5CwRzj9Q5XSSX9hUOR+ACRDZOsvM"
+    username: "acrlbgdemodev"
+    password: "cLbic1o0qQPT+vHBDsGWzFBZ+WAN9x+Q5jnPd9DDgK+ACRCLJ5Lt"

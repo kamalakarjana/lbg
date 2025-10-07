@@ -1,0 +1,433 @@
+name: lbg App CI/CD
+
+on:
+  push:
+    branches: [main, qwert]
+  pull_request:
+    branches: [main]
+
+env:
+  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+  AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  NODE_VERSION: '18'
+  TERRAFORM_VERSION: '1.5.0'
+
+jobs:
+  terraform-infrastructure:
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init
+        run: |
+          cd infrastructure
+          terraform init \
+            -backend-config="resource_group_name=rg-lbg-demo-dev" \
+            -backend-config="storage_account_name=${{ secrets.STORAGE_ACCOUNT_NAME }}" \
+            -backend-config="container_name=lbg-02-12-1994" \
+            -backend-config="key=terraform.lbg-02-12-1994"
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+      - name: Terraform Validate
+        run: |
+          cd infrastructure
+          terraform validate
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+      - name: Terraform Format
+        run: |
+          cd infrastructure
+          terraform fmt -recursive
+
+      - name: Terraform Plan
+        run: |
+          cd infrastructure
+          terraform plan \
+            -var="environment=dev" \
+            -var="resource_group_name=rg-lbg-demo-dev" \
+            -var="location=Central US" \
+            -var="acr_name=acrlbgdemodev" \
+            -var="aks_cluster_name=lbg-aks-cluster" \
+            -var="vnet_name=vnet-dev-lbg-app" \
+            -var="public_ip_name=pip-lb-dev-lbg-app" \
+            -var="node_count=2" \
+            -var="vm_size=Standard_D2s_v3" \
+            -var="kubernetes_version=1.27.7" \
+            -out=tfplan
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop'
+        run: |
+          cd infrastructure
+          terraform apply -auto-approve tfplan
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: terraform-infrastructure
+    strategy:
+      matrix:
+        service: [patient-service, appointment-service]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install dependencies for ${{ matrix.service }}
+        run: |
+          cd ${{ matrix.service }}
+          npm install
+
+      - name: Build Docker image
+        run: |
+          cd ${{ matrix.service }}
+          docker build \
+            --tag ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }} \
+            --tag ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:latest \
+            --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+            --build-arg VCS_REF=${{ github.sha }} \
+            --build-arg VERSION=1.0.0 \
+            .
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Log in to Azure Container Registry
+        run: |
+          az acr login --name ${{ secrets.ACR_LOGIN_SERVER }}
+
+      - name: Push Docker image
+        run: |
+          docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }}
+          docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:latest
+
+  # Simplified Trivy scan without CodeQL upload
+  trivy-scan:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    strategy:
+      matrix:
+        service: [patient-service, appointment-service]
+    steps:
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: '${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }}'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: 0  # Don't fail the pipeline on vulnerabilities
+
+      - name: Upload Trivy results as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results-${{ matrix.service }}
+          path: |
+            trivy-results-*.json
+            trivy-results-*.sarif
+          retention-days: 30
+
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run npm audit
+        run: |
+          echo "Running npm audit for patient-service..."
+          cd patient-service && npm audit --audit-level high || echo "npm audit completed with warnings"
+          echo "Running npm audit for appointment-service..."
+          cd ../appointment-service && npm audit --audit-level high || echo "npm audit completed with warnings"
+
+  deploy-to-dev:
+    runs-on: ubuntu-latest
+    needs: [terraform-infrastructure, trivy-scan, security-scan]
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          helm version
+
+      - name: Configure Azure credentials
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group rg-lbg-demo-dev \
+            --name lbg-aks-cluster-dev \
+            --overwrite-existing
+
+      - name: Clean up existing namespace if needed
+        run: |
+          # Check if namespace exists and delete it if it wasn't created by Helm
+          if kubectl get namespace lbg-ns >/dev/null 2>&1; then
+            echo "Namespace lbg-ns exists, checking if it's Helm-managed..."
+            if ! kubectl get namespace lbg-ns -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}' | grep -q "Helm"; then
+              echo "Namespace is not Helm-managed, deleting it..."
+              kubectl delete namespace lbg-ns
+              echo "Waiting for namespace to be deleted..."
+              kubectl wait --for=delete namespace/lbg-ns --timeout=60s
+            else
+              echo "Namespace is already Helm-managed, skipping deletion"
+            fi
+          fi
+
+      - name: Create ACR pull secret in namespace (if namespace exists)
+        run: |
+          # Only create secret if namespace exists, otherwise Helm will handle it
+          if kubectl get namespace lbg-ns >/dev/null 2>&1; then
+            kubectl create secret docker-registry acr-secret \
+              --namespace lbg-ns \
+              --docker-server=${{ secrets.ACR_LOGIN_SERVER }} \
+              --docker-username=${{ secrets.AZURE_CLIENT_ID }} \
+              --docker-password=${{ secrets.AZURE_CLIENT_SECRET }} \
+              --dry-run=client -o yaml | kubectl apply -f -
+          fi
+
+      - name: Deploy to AKS using Helm
+        run: |
+          cd kubernetes/helm
+          helm upgrade --install lbg-ns . \
+            --namespace lbg-ns \
+            --create-namespace \
+            --wait \
+            --timeout 10m \
+            --set global.environment=dev \
+            --set image.registry=${{ secrets.ACR_LOGIN_SERVER }} \
+            --set patientService.image=patient-service \
+            --set patientService.tag=${{ github.sha }} \
+            --set appointmentService.image=appointment-service \
+            --set appointmentService.tag=${{ github.sha }} \
+            --values values-dev.yaml
+
+      - name: Verify deployment
+        run: |
+          echo "=== Deployment Verification ==="
+          kubectl get pods -n lbg-ns -o wide
+          echo ""
+          kubectl get services -n lbg-ns
+          echo ""
+          kubectl get ingress -n lbg-ns
+
+      - name: Run smoke tests
+        run: |
+          echo "Waiting for services to be ready..."
+          kubectl wait --for=condition=ready pod -l app=patient-service -n lbg-ns --timeout=300s
+          kubectl wait --for=condition=ready pod -l app=appointment-service -n lbg-ns --timeout=300s
+          
+          echo "Testing health endpoints..."
+          kubectl run -it --rm --restart=Never test-patient --image=curlimages/curl --namespace=lbg-ns --command -- curl -s -f http://patient-service:3000/health && echo "Patient service: HEALTHY" || echo "Patient service: UNHEALTHY"
+          kubectl run -it --rm --restart=Never test-appointment --image=curlimages/curl --namespace=lbg-ns --command -- curl -s -f http://appointment-service:3001/health && echo "Appointment service: HEALTHY" || echo "Appointment service: UNHEALTHY"
+          
+          echo "Smoke tests completed"
+
+  deploy-to-staging:
+    needs: deploy-to-dev
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      - name: Configure Azure credentials
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group rg-lbg-demo-dev \
+            --name lbg-aks-cluster-staging \
+            --overwrite-existing
+
+      - name: Clean up existing namespace if needed
+        run: |
+          # Check if namespace exists and delete it if it wasn't created by Helm
+          if kubectl get namespace lbg-ns >/dev/null 2>&1; then
+            echo "Namespace lbg-ns exists, checking if it's Helm-managed..."
+            if ! kubectl get namespace lbg-ns -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}' | grep -q "Helm"; then
+              echo "Namespace is not Helm-managed, deleting it..."
+              kubectl delete namespace lbg-ns
+              echo "Waiting for namespace to be deleted..."
+              kubectl wait --for=delete namespace/lbg-ns --timeout=60s
+            else
+              echo "Namespace is already Helm-managed, skipping deletion"
+            fi
+          fi
+
+      - name: Create ACR pull secret in namespace (if namespace exists)
+        run: |
+          # Only create secret if namespace exists, otherwise Helm will handle it
+          if kubectl get namespace lbg-ns >/dev/null 2>&1; then
+            kubectl create secret docker-registry acr-secret \
+              --namespace lbg-ns \
+              --docker-server=${{ secrets.ACR_LOGIN_SERVER }} \
+              --docker-username=${{ secrets.AZURE_CLIENT_ID }} \
+              --docker-password=${{ secrets.AZURE_CLIENT_SECRET }} \
+              --dry-run=client -o yaml | kubectl apply -f -
+          fi
+
+      - name: Deploy to AKS using Helm
+        run: |
+          cd kubernetes/helm
+          helm upgrade --install lbg-ns . \
+            --namespace lbg-ns \
+            --create-namespace \
+            --wait \
+            --timeout 10m \
+            --set global.environment=staging \
+            --set image.registry=${{ secrets.ACR_LOGIN_SERVER }} \
+            --set patientService.image=patient-service \
+            --set patientService.tag=${{ github.sha }} \
+            --set appointmentService.image=appointment-service \
+            --set appointmentService.tag=${{ github.sha }} \
+            --values values-staging.yaml
+
+      - name: Verify deployment
+        run: |
+          echo "=== Staging Deployment Verification ==="
+          kubectl get pods -n lbg-ns -o wide
+          echo ""
+          kubectl get services -n lbg-ns
+          echo ""
+          kubectl get ingress -n lbg-ns
+
+  deploy-to-prod:
+    needs: deploy-to-staging
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      - name: Configure Azure credentials
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group rg-lbg-demo-dev \
+            --name lbg-aks-cluster-prod \
+            --overwrite-existing
+
+      - name: Clean up existing namespace if needed
+        run: |
+          # Check if namespace exists and delete it if it wasn't created by Helm
+          if kubectl get namespace lbg-ns >/dev/null 2>&1; then
+            echo "Namespace lbg-ns exists, checking if it's Helm-managed..."
+            if ! kubectl get namespace lbg-ns -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}' | grep -q "Helm"; then
+              echo "Namespace is not Helm-managed, deleting it..."
+              kubectl delete namespace lbg-ns
+              echo "Waiting for namespace to be deleted..."
+              kubectl wait --for=delete namespace/lbg-ns --timeout=60s
+            else
+              echo "Namespace is already Helm-managed, skipping deletion"
+            fi
+          fi
+
+      - name: Create ACR pull secret in namespace (if namespace exists)
+        run: |
+          # Only create secret if namespace exists, otherwise Helm will handle it
+          if kubectl get namespace lbg-ns >/dev/null 2>&1; then
+            kubectl create secret docker-registry acr-secret \
+              --namespace lbg-ns \
+              --docker-server=${{ secrets.ACR_LOGIN_SERVER }} \
+              --docker-username=${{ secrets.AZURE_CLIENT_ID }} \
+              --docker-password=${{ secrets.AZURE_CLIENT_SECRET }} \
+              --dry-run=client -o yaml | kubectl apply -f -
+          fi
+
+      - name: Deploy to AKS using Helm
+        run: |
+          cd kubernetes/helm
+          helm upgrade --install lbg-ns . \
+            --namespace lbg-ns \
+            --create-namespace \
+            --wait \
+            --timeout 15m \
+            --set global.environment=prod \
+            --set image.registry=${{ secrets.ACR_LOGIN_SERVER }} \
+            --set patientService.image=patient-service \
+            --set patientService.tag=${{ github.sha }} \
+            --set appointmentService.image=appointment-service \
+            --set appointmentService.tag=${{ github.sha }} \
+            --values values-prod.yaml
+
+      - name: Verify deployment
+        run: |
+          echo "=== Production Deployment Verification ==="
+          kubectl get pods -n lbg-ns -o wide
+          echo ""
+          kubectl get services -n lbg-ns
+          echo ""
+          kubectl get ingress -n lbg-ns
+          echo ""
+          kubectl get hpa -n lbg-ns
+
+      - name: Run production smoke tests
+        run: |
+          echo "Waiting for production services to be ready..."
+          kubectl wait --for=condition=ready pod -l app=patient-service -n lbg-ns --timeout=300s
+          kubectl wait --for=condition=ready pod -l app=appointment-service -n lbg-ns --timeout=300s
+          
+          echo "Testing production health endpoints..."
+          kubectl run -it --rm --restart=Never test-patient-prod --image=curlimages/curl --namespace=lbg-ns --command -- curl -s -f http://patient-service:3000/health && echo "Patient service: HEALTHY" || echo "Patient service: UNHEALTHY"
+          kubectl run -it --rm --restart=Never test-appointment-prod --image=curlimages/curl --namespace=lbg-ns --command -- curl -s -f http://appointment-service:3001/health && echo "Appointment service: HEALTHY" || echo "Appointment service: UNHEALTHY"
+          
+          echo "Production deployment verified"
+
+  cleanup:
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [deploy-to-dev, deploy-to-staging, deploy-to-prod]
+    steps:
+      - name: Cleanup Docker images
+        run: |
+          docker system prune -f

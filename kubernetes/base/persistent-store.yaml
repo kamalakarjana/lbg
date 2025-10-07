@@ -2,7 +2,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: patient-data-pvc
-  namespace: healthcare-ns
+  namespace: lbg-ns
 spec:
   accessModes:
     - ReadWriteOnce
@@ -16,7 +16,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: appointment-data-pvc
-  namespace: healthcare-ns
+  namespace: lbg-ns
 spec:
   accessModes:
     - ReadWriteOnce

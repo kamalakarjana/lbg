@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: healthcare-app-config
+  name: lbg-app-config
   namespace: {{ .Values.global.namespace }}
 data:
   NODE_ENV: {{ .Values.global.environment }}
