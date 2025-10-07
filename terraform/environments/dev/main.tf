@@ -1,3 +1,8 @@
+# Generate random suffix for unique resource names
+resource "random_id" "suffix" {
+  byte_length = 4
+}
+
 provider "azurerm" {
   features {
     resource_group {
@@ -29,7 +34,7 @@ module "network" {
 
 module "acr" {
   source               = "../../modules/acr"
-  acr_name             = var.acr_name
+  acr_name             = "${var.acr_name}${random_id.suffix.hex}"  # Unique name with random suffix
   location             = var.location
   resource_group_name  = azurerm_resource_group.main.name
   sku                  = var.acr_sku
@@ -40,13 +45,13 @@ module "acr" {
 
 module "aks" {
   source              = "../../modules/aks"
-  cluster_name        = var.aks_cluster_name    # Only this line changed
+  cluster_name        = var.aks_cluster_name  # Use variable from command line
   location            = var.location
   resource_group_name = azurerm_resource_group.main.name
   environment         = var.environment
   dns_prefix          = "${var.project_name}-k8s-${var.environment}"
-  node_count          = var.node_count          # Only this line changed
-  vm_size             = var.vm_size             # Only this line changed
+  node_count          = var.node_count        # Use variable from command line
+  vm_size             = var.vm_size           # Use variable from command line
   kubernetes_version  = var.kubernetes_version
   subnet_id           = module.network.aks_subnet_id
   acr_id              = module.acr.acr_id

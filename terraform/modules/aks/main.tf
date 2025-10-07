@@ -21,8 +21,8 @@ resource "azurerm_kubernetes_cluster" "aks" {
   network_profile {
     network_plugin = "azure"
     network_policy = "azure"
-    service_cidr   = "10.10.0.0/16"    # Changed to non-overlapping range
-    dns_service_ip = "10.10.0.10"      # Must be within service_cidr
+    service_cidr   = "10.10.0.0/16"    # Non-overlapping CIDR
+    dns_service_ip = "10.10.0.10"      # Within service_cidr
   }
 
   tags = var.tags

@@ -13,7 +13,7 @@ variable "resource_group_name" {
 variable "acr_name" {
   description = "Name of the Azure Container Registry"
   type        = string
-  default     = "healthcareappacrdev"
+  default     = "healthcareacrdev"  # Base name only
 }
 
 variable "location" {
@@ -55,7 +55,7 @@ variable "aks_vm_size" {
 variable "kubernetes_version" {
   description = "Kubernetes version"
   type        = string
-  default     = "1.26.3"
+  default     = "1.33.3"
 }
 
 variable "tags" {
@@ -68,6 +68,7 @@ variable "tags" {
   }
 }
 
+# Add these new variables for command line compatibility
 variable "aks_cluster_name" {
   description = "AKS cluster name"
   type        = string

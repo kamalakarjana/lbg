@@ -34,3 +34,8 @@ output "cluster_fqdn" {
   value       = module.aks.host
   sensitive   = true
 }
+
+output "unique_suffix" {
+  description = "Random suffix used for unique naming"
+  value       = random_id.suffix.hex
+}
