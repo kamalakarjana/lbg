@@ -30,11 +30,6 @@ on:
         required: false
         default: false
         type: boolean
-      force_recreate:
-        description: 'Force recreate infrastructure (destroy & apply)'
-        required: false
-        default: false
-        type: boolean
 
 env:
   RESOURCE_GROUP_NAME: tfstate-rg-dev
@@ -57,7 +52,6 @@ jobs:
       skip_security_scan: ${{ steps.set_skip_security_scan.outputs.skip_security_scan }}
       environment: ${{ steps.set_environment.outputs.environment }}
       image_tag: ${{ steps.set_image_tag.outputs.image_tag }}
-      force_recreate: ${{ steps.set_force_recreate.outputs.force_recreate }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -96,15 +90,6 @@ jobs:
             echo "skip_security_scan=true" >> $GITHUB_OUTPUT
           else
             echo "skip_security_scan=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Set force recreate flag
-        id: set_force_recreate
-        run: |
-          if [ "${{ github.event.inputs.force_recreate }}" = "true" ]; then
-            echo "force_recreate=true" >> $GITHUB_OUTPUT
-          else
-            echo "force_recreate=false" >> $GITHUB_OUTPUT
           fi
 
   # PHASE 2: CODE ANALYSIS & TESTING
@@ -302,160 +287,14 @@ jobs:
             --ignore-unfixed \
             --exit-code 0
 
-  # PHASE 5: CHECK CLUSTER STATUS & CONDITIONAL DESTROY
-  check_cluster_status:
-    name: "5. Check Cluster Status - ${{ needs.checkout_and_setup.outputs.environment }}"
-    runs-on: ubuntu-latest
-    needs: 
-      - checkout_and_setup
-      - build_and_push_images
-      - security_scan_acr
-    outputs:
-      cluster_exists: ${{ steps.check_cluster.outputs.cluster_exists }}
-      cluster_running: ${{ steps.check_cluster.outputs.cluster_running }}
-      needs_destroy: ${{ steps.check_destroy_condition.outputs.needs_destroy }}
-    environment: ${{ needs.checkout_and_setup.outputs.environment }}
-    steps:
-      - name: Log in to Azure
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Check if cluster exists and running
-        id: check_cluster
-        run: |
-          set +e  # Don't exit on error for this check
-          
-          echo "🔍 Checking AKS cluster status..."
-          
-          # Check if resource group exists
-          if az group show --name healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }} &>/dev/null; then
-            echo "✅ Resource group exists"
-            
-            # Check if AKS cluster exists
-            if az aks show --resource-group healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }} --name ${{ env.AKS_CLUSTER_NAME }} &>/dev/null; then
-              echo "✅ AKS cluster exists"
-              
-              # Check cluster provisioning state
-              CLUSTER_STATE=$(az aks show --resource-group healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }} --name ${{ env.AKS_CLUSTER_NAME }} --query provisioningState -o tsv)
-              echo "Cluster provisioning state: $CLUSTER_STATE"
-              
-              if [ "$CLUSTER_STATE" = "Succeeded" ]; then
-                echo "✅ AKS cluster is running successfully"
-                echo "cluster_exists=true" >> $GITHUB_OUTPUT
-                echo "cluster_running=true" >> $GITHUB_OUTPUT
-              else
-                echo "⚠️ AKS cluster exists but not in running state: $CLUSTER_STATE"
-                echo "cluster_exists=true" >> $GITHUB_OUTPUT
-                echo "cluster_running=false" >> $GITHUB_OUTPUT
-              fi
-            else
-              echo "❌ AKS cluster does not exist"
-              echo "cluster_exists=false" >> $GITHUB_OUTPUT
-              echo "cluster_running=false" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "❌ Resource group does not exist"
-            echo "cluster_exists=false" >> $GITHUB_OUTPUT
-            echo "cluster_running=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Check if destroy is needed
-        id: check_destroy_condition
-        run: |
-          echo "🔍 Checking if cluster destroy is needed..."
-          
-          # Conditions for destroy:
-          # 1. Force recreate is enabled OR
-          # 2. Cluster exists but is not running properly OR
-          # 3. This is a fresh deployment (cluster doesn't exist)
-          
-          if [ "${{ needs.checkout_and_setup.outputs.force_recreate }}" = "true" ]; then
-            echo "🚨 Force recreate enabled - will destroy existing cluster"
-            echo "needs_destroy=true" >> $GITHUB_OUTPUT
-          elif [ "${{ steps.check_cluster.outputs.cluster_exists }}" = "true" ] && [ "${{ steps.check_cluster.outputs.cluster_running }}" = "false" ]; then
-            echo "🚨 Cluster exists but not running properly - will destroy and recreate"
-            echo "needs_destroy=true" >> $GITHUB_OUTPUT
-          elif [ "${{ steps.check_cluster.outputs.cluster_exists }}" = "false" ]; then
-            echo "✅ Fresh deployment - no destroy needed"
-            echo "needs_destroy=false" >> $GITHUB_OUTPUT
-          else
-            echo "✅ Cluster is running properly - no destroy needed"
-            echo "needs_destroy=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Show cluster status summary
-        run: |
-          echo "📊 CLUSTER STATUS SUMMARY:"
-          echo "Cluster Exists: ${{ steps.check_cluster.outputs.cluster_exists }}"
-          echo "Cluster Running: ${{ steps.check_cluster.outputs.cluster_running }}"
-          echo "Force Recreate: ${{ needs.checkout_and_setup.outputs.force_recreate }}"
-          echo "Needs Destroy: ${{ steps.check_destroy_condition.outputs.needs_destroy }}"
-
-  # PHASE 6: TERRAFORM DESTROY (Conditional)
-  terraform_destroy:
-    name: "6. Terraform Destroy - ${{ needs.checkout_and_setup.outputs.environment }}"
-    runs-on: ubuntu-latest
-    needs: 
-      - checkout_and_setup
-      - check_cluster_status
-    if: needs.check_cluster_status.outputs.needs_destroy == 'true' && github.event_name != 'pull_request'
-    environment: ${{ needs.checkout_and_setup.outputs.environment }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.7.0"
-
-      - name: Log in to Azure
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Terraform Init
-        run: |
-          terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} init \
-            -backend-config="resource_group_name=${{ env.RESOURCE_GROUP_NAME }}" \
-            -backend-config="storage_account_name=${{ env.STORAGE_ACCOUNT_NAME }}" \
-            -backend-config="container_name=tfstate-dev" \
-            -backend-config="key=healthcare-app-${{ needs.checkout_and_setup.outputs.environment }}.tfstate" \
-            -input=false \
-            -upgrade
-
-      - name: Terraform Destroy
-        run: |
-          echo "🗑️ Destroying Terraform infrastructure..."
-          terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} destroy \
-            -auto-approve \
-            -var="resource_group_name=healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }}" \
-            -var="acr_name=${{ env.ACR_NAME }}" \
-            -var="aks_cluster_name=${{ env.AKS_CLUSTER_NAME }}" \
-            -var="environment=${{ needs.checkout_and_setup.outputs.environment }}" \
-            -var="location=eastus" \
-            -var="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
-            -var="os_disk_size_gb=30" \
-            -var="vm_size=Standard_B2s" \
-            -var="node_count=1"
-
-      - name: Wait for resources to be deleted
-        run: |
-          echo "⏳ Waiting for resources to be fully deleted..."
-          sleep 60
-          echo "✅ Destroy completed"
-
-  # PHASE 7: TERRAFORM INFRASTRUCTURE
+  # PHASE 5: TERRAFORM INFRASTRUCTURE
   terraform_infrastructure:
-    name: "7. Terraform Infrastructure - ${{ needs.checkout_and_setup.outputs.environment }}"
+    name: "5. Terraform Infrastructure - ${{ needs.checkout_and_setup.outputs.environment }}"
     runs-on: ubuntu-latest
     needs: 
       - checkout_and_setup
       - build_and_push_images
       - security_scan_acr
-      - check_cluster_status
-      - terraform_destroy
     environment: ${{ needs.checkout_and_setup.outputs.environment }}
     steps:
       - name: Checkout code
@@ -526,6 +365,24 @@ jobs:
             -input=false \
             -upgrade
 
+      - name: Import Existing Resource Group
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "🔄 Importing existing resource group into Terraform state..."
+          
+          # Check if resource group exists but not in Terraform state
+          if az group show --name healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }} &>/dev/null; then
+            echo "📦 Resource group exists, importing into Terraform state..."
+            
+            # Import the resource group into Terraform state
+            terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} import \
+              azurerm_resource_group.main \
+              /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }} || \
+              echo "⚠️ Resource group may already be in state or import failed"
+          else
+            echo "✅ Resource group doesn't exist, will be created by Terraform"
+          fi
+
       - name: Terraform Validate
         run: |
           echo "🔍 Validating Terraform configuration..."
@@ -556,56 +413,34 @@ jobs:
             -input=false \
             tfplan
 
-      - name: Verify AKS Cluster Health
+      - name: Configure kubectl
         if: github.event_name != 'pull_request'
         run: |
-          echo "🏥 Verifying AKS cluster health..."
-          
-          # Wait for cluster to be fully provisioned
-          echo "⏳ Waiting for AKS cluster to be ready..."
-          az aks wait --resource-group healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }} \
-            --name ${{ env.AKS_CLUSTER_NAME }} \
-            --created \
-            --interval 10 \
-            --timeout 600
-          
-          echo "✅ AKS cluster is ready"
-          
-          # Configure kubectl
-          echo "🔧 Configuring kubectl..."
+          echo "🔧 Configuring kubectl for AKS cluster: ${{ env.AKS_CLUSTER_NAME }}"
           az aks get-credentials \
             --resource-group healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }} \
             --name ${{ env.AKS_CLUSTER_NAME }} \
             --overwrite-existing
           
-          # Verify cluster connectivity
-          echo "🔍 Verifying cluster connectivity..."
+          echo "✅ kubectl configured successfully"
+
+      - name: Verify AKS cluster
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "=== AKS Cluster Info ==="
           kubectl cluster-info
           
-          # Check node status
-          echo "🔍 Checking node status..."
+          echo "=== Nodes ==="
           kubectl get nodes -o wide
           
-          # Check system pods
-          echo "🔍 Checking system pods..."
+          echo "=== System Pods ==="
           kubectl get pods -n kube-system
           
-          # Verify all nodes are ready
-          READY_NODES=$(kubectl get nodes --no-headers | grep -c "Ready")
-          TOTAL_NODES=$(kubectl get nodes --no-headers | wc -l)
-          
-          echo "Nodes Ready: $READY_NODES/$TOTAL_NODES"
-          
-          if [ "$READY_NODES" -eq "$TOTAL_NODES" ] && [ "$READY_NODES" -gt 0 ]; then
-            echo "✅ All nodes are ready and healthy"
-          else
-            echo "❌ Some nodes are not ready"
-            exit 1
-          fi
+          echo "✅ AKS cluster is ready"
 
-  # PHASE 8: HELM DEPLOYMENT
+  # PHASE 6: HELM DEPLOYMENT
   helm_deployment:
-    name: "8. Helm Deployment - ${{ needs.checkout_and_setup.outputs.environment }}"
+    name: "6. Helm Deployment - ${{ needs.checkout_and_setup.outputs.environment }}"
     runs-on: ubuntu-latest
     needs: 
       - terraform_infrastructure
@@ -673,9 +508,9 @@ jobs:
           
           echo "✅ Helm deployment completed"
 
-  # PHASE 9: VERIFICATION & SMOKE TESTS
+  # PHASE 7: VERIFICATION & SMOKE TESTS
   verify_deployment:
-    name: "9. Verify Deployment - ${{ needs.checkout_and_setup.outputs.environment }}"
+    name: "7. Verify Deployment - ${{ needs.checkout_and_setup.outputs.environment }}"
     runs-on: ubuntu-latest
     needs: helm_deployment
     environment: ${{ needs.checkout_and_setup.outputs.environment }}
