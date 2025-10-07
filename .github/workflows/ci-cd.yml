@@ -70,7 +70,7 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
-      - name: Terraform Plan with Updated CIDR
+      - name: Terraform Plan
         run: |
           cd infrastructure
           terraform plan \
@@ -84,8 +84,6 @@ jobs:
             -var="node_count=2" \
             -var="vm_size=Standard_D2s_v3" \
             -var="kubernetes_version=1.27.7" \
-            -var="service_cidr=10.0.2.0/24" \
-            -var="dns_service_ip=10.0.2.10" \
             -out=tfplan
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}

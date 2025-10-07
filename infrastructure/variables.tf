@@ -66,3 +66,15 @@ variable "kubernetes_version" {
   type        = string
   default     = "1.33.3"
 }
+
+variable "service_cidr" {
+  description = "The network range used by the Kubernetes service"
+  type        = string
+  default     = "10.0.2.0/24"
+}
+
+variable "dns_service_ip" {
+  description = "IP address within the Kubernetes service address range that will be used by cluster service discovery"
+  type        = string
+  default     = "10.0.2.10"
+}
