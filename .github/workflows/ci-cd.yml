@@ -77,6 +77,17 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
+      - name: Import Existing Resource Group
+        run: |
+          cd infrastructure
+          echo "Importing existing resource group into Terraform state..."
+          terraform import module.resource_group.azurerm_resource_group.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-lbg-demo-dev || echo "Resource group may already be imported or import failed, continuing..."
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/qwert'
         run: |
@@ -192,7 +203,7 @@ jobs:
         run: |
           az aks get-credentials \
             --resource-group rg-lbg-demo-dev \
-            --name lbg-aks-cluster-dev \
+            --name lbg-aks-cluster \
             --overwrite-existing
 
       - name: Clean up existing namespace if needed
@@ -225,7 +236,7 @@ jobs:
       - name: Deploy to AKS using Helm
         run: |
           cd kubernetes/helm
-          helm upgrade --install lbg-ns . \
+          helm upgrade --install lbg-app . \
             --namespace lbg-ns \
             --create-namespace \
             --wait \
@@ -236,7 +247,8 @@ jobs:
             --set patientService.tag=${{ github.sha }} \
             --set appointmentService.image=appointment-service \
             --set appointmentService.tag=${{ github.sha }} \
-            --values values-dev.yaml
+            --set patientService.replicaCount=2 \
+            --set appointmentService.replicaCount=2
 
       - name: Verify deployment
         run: |
@@ -280,7 +292,7 @@ jobs:
         run: |
           az aks get-credentials \
             --resource-group rg-lbg-demo-dev \
-            --name lbg-aks-cluster-staging \
+            --name lbg-aks-cluster \
             --overwrite-existing
 
       - name: Clean up existing namespace if needed
@@ -313,7 +325,7 @@ jobs:
       - name: Deploy to AKS using Helm
         run: |
           cd kubernetes/helm
-          helm upgrade --install lbg-ns . \
+          helm upgrade --install lbg-app . \
             --namespace lbg-ns \
             --create-namespace \
             --wait \
@@ -324,7 +336,8 @@ jobs:
             --set patientService.tag=${{ github.sha }} \
             --set appointmentService.image=appointment-service \
             --set appointmentService.tag=${{ github.sha }} \
-            --values values-staging.yaml
+            --set patientService.replicaCount=2 \
+            --set appointmentService.replicaCount=2
 
       - name: Verify deployment
         run: |
@@ -356,7 +369,7 @@ jobs:
         run: |
           az aks get-credentials \
             --resource-group rg-lbg-demo-dev \
-            --name lbg-aks-cluster-prod \
+            --name lbg-aks-cluster \
             --overwrite-existing
 
       - name: Clean up existing namespace if needed
@@ -389,7 +402,7 @@ jobs:
       - name: Deploy to AKS using Helm
         run: |
           cd kubernetes/helm
-          helm upgrade --install lbg-ns . \
+          helm upgrade --install lbg-app . \
             --namespace lbg-ns \
             --create-namespace \
             --wait \
@@ -400,7 +413,8 @@ jobs:
             --set patientService.tag=${{ github.sha }} \
             --set appointmentService.image=appointment-service \
             --set appointmentService.tag=${{ github.sha }} \
-            --values values-prod.yaml
+            --set patientService.replicaCount=3 \
+            --set appointmentService.replicaCount=3
 
       - name: Verify deployment
         run: |
