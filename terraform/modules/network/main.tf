@@ -30,3 +30,9 @@ resource "azurerm_public_ip" "loadbalancer" {
   tags                = var.tags
 }
 */
+
+resource "azurerm_network_security_group" "aks" {
+  name                = "nsg-aks-dev"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+}

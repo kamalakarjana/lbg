@@ -20,3 +20,9 @@ output "subnet_name" {
   description = "Subnet name"
   value       = azurerm_subnet.aks.name
 }
+
+
+output "vnet_id" {
+  description = "ID of the virtual network"
+  value       = azurerm_virtual_network.main.id
+}

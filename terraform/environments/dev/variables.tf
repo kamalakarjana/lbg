@@ -1,25 +1,37 @@
-variable "subscription_id" {
-  description = "Azure subscription ID"
+variable "location" {
+  description = "Azure region"
   type        = string
-  sensitive   = true
+  default     = "westus2"  # Make sure this is NOT eastus
+}
+
+variable "node_count" {
+  description = "Number of AKS nodes"
+  type        = number
+  default     = 1  # Reduced to avoid quota issues
+}
+
+variable "vm_size" {
+  description = "VM size for AKS nodes"
+  type        = string
+  default     = "Standard_B2s"  # Smaller VM size
 }
 
 variable "resource_group_name" {
-  description = "Name of the resource group"
+  description = "Resource group name"
   type        = string
   default     = "healthcare-app-rg-dev"
 }
 
-variable "acr_name" {
-  description = "Name of the Azure Container Registry"
+variable "aks_cluster_name" {
+  description = "AKS cluster name"
   type        = string
-  default     = "healthcareacrdev"  # Base name only
+  default     = "healthcare-aks-cluster-dev"
 }
 
-variable "location" {
-  description = "Azure region"
+variable "acr_name" {
+  description = "ACR name"
   type        = string
-  default     = "westus2"
+  default     = "kamalj2kkkk"
 }
 
 variable "environment" {
@@ -29,27 +41,20 @@ variable "environment" {
 }
 
 variable "project_name" {
-  description = "Project name for tagging"
+  description = "Project name"
   type        = string
-  default     = "healthcare-app"
+  default     = "healthcare"
+}
+
+variable "subscription_id" {
+  description = "Azure subscription ID"
+  type        = string
 }
 
 variable "acr_sku" {
   description = "ACR SKU"
   type        = string
   default     = "Basic"
-}
-
-variable "aks_node_count" {
-  description = "Number of AKS nodes"
-  type        = number
-  default     = 1
-}
-
-variable "aks_vm_size" {
-  description = "AKS node VM size"
-  type        = string
-  default     = "Standard_B2s"
 }
 
 variable "kubernetes_version" {
@@ -63,32 +68,6 @@ variable "tags" {
   type        = map(string)
   default = {
     Environment = "dev"
-    Project     = "healthcare-app"
-    Team        = "devops"
+    Project     = "healthcare"
   }
-}
-
-# Add these new variables for command line compatibility
-variable "aks_cluster_name" {
-  description = "AKS cluster name"
-  type        = string
-  default     = "healthcare-aks-cluster-dev"
-}
-
-variable "os_disk_size_gb" {
-  description = "OS disk size in GB"
-  type        = number
-  default     = 30
-}
-
-variable "vm_size" {
-  description = "VM size for AKS nodes"
-  type        = string
-  default     = "Standard_B2s"
-}
-
-variable "node_count" {
-  description = "Number of AKS nodes"
-  type        = number
-  default     = 1
 }

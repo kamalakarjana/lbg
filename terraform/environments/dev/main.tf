@@ -1,65 +1,30 @@
-# Generate random suffix for unique resource names
-resource "random_id" "suffix" {
-  byte_length = 4
-}
-
-provider "azurerm" {
-  features {
-    resource_group {
-      prevent_deletion_if_contains_resources = false
-    }
-  }
-  subscription_id = var.subscription_id
-}
-
-# Create the resource group first
-resource "azurerm_resource_group" "main" {
-  name     = var.resource_group_name
-  location = var.location
-  tags     = var.tags
-}
-
-module "network" {
-  source                = "../../modules/network"
-  resource_group_name   = azurerm_resource_group.main.name
-  location              = var.location
-  environment           = var.environment
-  project_name          = var.project_name
-  vnet_address_space    = ["10.0.0.0/16"]
-  subnet_address_prefix = "10.0.1.0/24"
-  tags                  = var.tags
-
-  depends_on = [azurerm_resource_group.main]
-}
-
-module "acr" {
-  source               = "../../modules/acr"
-  acr_name             = "${var.acr_name}${random_id.suffix.hex}"  # Unique name with random suffix
-  location             = var.location
-  resource_group_name  = azurerm_resource_group.main.name
-  sku                  = var.acr_sku
-  tags                 = var.tags
-
-  depends_on = [azurerm_resource_group.main]
-}
-
-module "aks" {
-  source              = "../../modules/aks"
-  cluster_name        = var.aks_cluster_name  # Use variable from command line
+resource "azurerm_virtual_network" "main" {
+  name                = "vnet-${var.environment}-${var.project_name}"
+  address_space       = [var.vnet_address_space]
   location            = var.location
-  resource_group_name = azurerm_resource_group.main.name
-  environment         = var.environment
-  dns_prefix          = "${var.project_name}-k8s-${var.environment}"
-  node_count          = var.node_count        # Use variable from command line
-  vm_size             = var.vm_size           # Use variable from command line
-  kubernetes_version  = var.kubernetes_version
-  subnet_id           = module.network.aks_subnet_id
-  acr_id              = module.acr.acr_id
+  resource_group_name = var.resource_group_name
   tags                = var.tags
+}
 
-  depends_on = [
-    azurerm_resource_group.main,
-    module.network,
-    module.acr
-  ]
+resource "azurerm_subnet" "aks" {
+  name                 = "snet-aks-${var.environment}"
+  resource_group_name  = var.resource_group_name
+  virtual_network_name = azurerm_virtual_network.main.name
+  address_prefixes     = [var.subnet_address_prefix]
+  
+  # Important for AKS
+  service_endpoints = ["Microsoft.ContainerRegistry"]
+}
+
+# If using network policies, add this:
+resource "azurerm_network_security_group" "aks" {
+  name                = "nsg-aks-${var.environment}"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  tags                = var.tags
+}
+
+resource "azurerm_subnet_network_security_group_association" "aks" {
+  subnet_id                 = azurerm_subnet.aks.id
+  network_security_group_id = azurerm_network_security_group.aks.id
 }

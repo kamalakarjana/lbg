@@ -39,3 +39,18 @@ output "unique_suffix" {
   description = "Random suffix used for unique naming"
   value       = random_id.suffix.hex
 }
+
+output "aks_subnet_id" {
+  description = "ID of the AKS subnet"
+  value       = azurerm_subnet.aks.id
+}
+
+output "vnet_id" {
+  description = "ID of the virtual network"
+  value       = azurerm_virtual_network.main.id
+}
+
+output "subnet_name" {
+  description = "Name of the AKS subnet"
+  value       = azurerm_subnet.aks.name
+}
