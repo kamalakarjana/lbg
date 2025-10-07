@@ -20,6 +20,7 @@ resource "azurerm_kubernetes_cluster" "main" {
     type = "SystemAssigned"
   }
 
+
   network_profile {
   network_plugin = "azure"
   network_policy = "azure"
