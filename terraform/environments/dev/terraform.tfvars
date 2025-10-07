@@ -8,3 +8,4 @@ acr_sku             = "Basic"
 aks_node_count      = 1
 aks_vm_size         = "Standard_B2s"
 kubernetes_version  = "1.33.3"
+#ASA
