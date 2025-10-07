@@ -1,20 +1,21 @@
 # Azure Configuration
-subscription_id      = "8b617ec6-11a6-4c2b-aa4a-150a2a8e14fc"
-resource_group_name  = "healthcare-app-rg"
-location            = "East US"
+subscription_id      = "98712f56-5913-4408-99dc-21036074ccd7"
+resource_group_name  = "rg-lbg-demo-dev"
+location             = "centralus"
 
 # Application Configuration
-acr_name            = "healthcareappacr160689"
+acr_name            = "acrlbgdemodev"
+acr_login_server    = "acrlbgdemodev.azurecr.io"
 environment         = "dev"
 project_name        = "healthcare-app"
 
-# ACR Configuration
-acr_sku            = "Basic"
-
 # AKS Configuration
-aks_node_count     = 1
-aks_vm_size        = "Standard_B2s"
-kubernetes_version = "1.27.3"
+aks_cluster_name    = "aks-lbg-demo-dev"
+cluster_fqdn        = "lbg-demo-dev-a7awu88d.hcp.centralus.azmk8s.io"
+kube_config         = "<sensitive>"
+aks_node_count      = 1
+aks_vm_size         = "Standard_B2s"
+kubernetes_version  = "1.33.3"
 
 # Tags
 tags = {
@@ -22,3 +23,4 @@ tags = {
   Project     = "healthcare-app"
   Team        = "devops"
 }
+

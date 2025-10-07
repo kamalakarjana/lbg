@@ -1,9 +1,9 @@
 terraform {
   backend "azurerm" {
-    resource_group_name  = "healthcare-app-rg"
-    storage_account_name = "tfstatestorageacc160689"
-    container_name       = "tfstate"
-    key                  = "terraform.tfstate"
+    resource_group_name  = "tfstate-rg-dev"
+    storage_account_name = "tfstatestorageacc9000dev"
+    container_name       = "tfstate-dev"
+    key                  = "healthcare-app-dev.tfstate"
   }
 
   required_version = ">= 1.0"
@@ -14,3 +14,8 @@ terraform {
     }
   }
 }
+
+provider "azurerm" {
+  features {}
+}
+

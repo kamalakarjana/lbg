@@ -6,14 +6,19 @@ variable "location" {
   type = string
 }
 
-variable "environment" {
+variable "vnet_name" {
   type = string
 }
 
-variable "project_name" {
+variable "subnet_name" {
   type = string
 }
 
-variable "tags" {
-  type = map(string)
+variable "address_space" {
+  type = string
 }
+
+variable "subnet_prefix" {
+  type = string
+}
+

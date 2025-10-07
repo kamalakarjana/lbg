@@ -1,15 +1,15 @@
 resource "azurerm_kubernetes_cluster" "aks" {
-  name                = "healthcare-aks-cluster"
+  name                = var.cluster_name
   location            = var.location
   resource_group_name = var.resource_group_name
-  dns_prefix          = "healthcare-aks"
+  dns_prefix          = var.dns_prefix
   kubernetes_version  = var.kubernetes_version
 
   default_node_pool {
-    name            = "default"
+    name            = var.node_pool_name
     node_count      = var.node_count
     vm_size         = var.vm_size
-    os_disk_size_gb = var.os_disk_size_gb
+    os_disk_size_gb = 30
     vnet_subnet_id  = var.subnet_id
     type            = "VirtualMachineScaleSets"
   }
@@ -27,9 +27,3 @@ resource "azurerm_kubernetes_cluster" "aks" {
   tags = var.tags
 }
 
-resource "azurerm_role_assignment" "aks_acr" {
-  principal_id                     = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
-  role_definition_name             = "AcrPull"
-  scope                            = var.acr_id
-  skip_service_principal_aad_check = true
-}

@@ -1,15 +1,10 @@
-variable "resource_group_name" {
-  description = "Name of the resource group"
+variable "acr_name" {
+  description = "ACR Name"
   type        = string
 }
 
 variable "location" {
   description = "Azure region"
-  type        = string
-}
-
-variable "acr_name" {
-  description = "Name of the Azure Container Registry"
   type        = string
 }
 
@@ -19,12 +14,14 @@ variable "sku" {
   default     = "Basic"
 }
 
+variable "resource_group_name" {
+  description = "Resource Group for ACR"
+  type        = string
+}
+
 variable "tags" {
   description = "Resource tags"
   type        = map(string)
-  default = {
-    Environment = "dev"
-    Project     = "healthcare-app"
-    Team        = "devops"
-  }
+  default     = {}
 }
+
