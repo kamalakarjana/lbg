@@ -1,9 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: healthcare-lbg-demo
-  labels:
-    name: healthcare-lbg-demo
-    environment: dev
-    project: healthcare-lbg-demo
-    branch: dev
