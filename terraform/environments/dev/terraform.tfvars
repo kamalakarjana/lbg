@@ -1,5 +1,5 @@
 # Azure Configuration
-subscription_id = "YOUR_AZURE_SUBSCRIPTION_ID"  # Replace with your actual subscription ID
+subscription_id = "YOUR_AZURE_SUBSCRIPTION_ID" # Replace with your actual subscription ID
 
 # Environment Configuration
 location            = "westus2"
@@ -8,8 +8,8 @@ environment         = "dev"
 project_name        = "healthcare"
 
 # ACR Configuration  
-acr_name   = "kamalj2kkkk"
-acr_sku    = "Basic"
+acr_name = "kamalj2kkkk"
+acr_sku  = "Basic"
 
 # AKS Configuration
 aks_cluster_name   = "healthcare-aks-cluster-dev"

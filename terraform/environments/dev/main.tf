@@ -25,12 +25,12 @@ module "network" {
   source = "../../modules/network"
 
   resource_group_name   = azurerm_resource_group.main.name
-  location             = azurerm_resource_group.main.location
-  environment          = var.environment
-  project_name         = var.project_name
-  vnet_address_space   = var.vnet_address_space
+  location              = azurerm_resource_group.main.location
+  environment           = var.environment
+  project_name          = var.project_name
+  vnet_address_space    = var.vnet_address_space
   subnet_address_prefix = var.subnet_address_prefix
-  tags                 = local.common_tags
+  tags                  = local.common_tags
 
   depends_on = [azurerm_resource_group.main]
 }
@@ -40,10 +40,10 @@ module "acr" {
   source = "../../modules/acr"
 
   resource_group_name = azurerm_resource_group.main.name
-  location           = azurerm_resource_group.main.location
-  acr_name           = "${var.acr_name}${random_id.suffix.hex}"
-  sku                = var.acr_sku
-  tags               = local.common_tags
+  location            = azurerm_resource_group.main.location
+  acr_name            = "${var.acr_name}${random_id.suffix.hex}"
+  sku                 = var.acr_sku
+  tags                = local.common_tags
 
   depends_on = [azurerm_resource_group.main]
 }
@@ -54,15 +54,15 @@ module "aks" {
 
   cluster_name        = var.aks_cluster_name
   resource_group_name = azurerm_resource_group.main.name
-  location           = azurerm_resource_group.main.location
-  environment        = var.environment
-  dns_prefix         = "${var.project_name}-k8s-${var.environment}"
-  node_count         = var.node_count
-  vm_size            = var.vm_size
-  kubernetes_version = var.kubernetes_version
-  subnet_id          = module.network.aks_subnet_id
-  acr_id             = module.acr.acr_id
-  tags               = local.common_tags
+  location            = azurerm_resource_group.main.location
+  environment         = var.environment
+  dns_prefix          = "${var.project_name}-k8s-${var.environment}"
+  node_count          = var.node_count
+  vm_size             = var.vm_size
+  kubernetes_version  = var.kubernetes_version
+  subnet_id           = module.network.aks_subnet_id
+  acr_id              = module.acr.acr_id
+  tags                = local.common_tags
 
   depends_on = [
     azurerm_resource_group.main,
