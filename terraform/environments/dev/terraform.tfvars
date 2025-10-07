@@ -1,5 +1,9 @@
 # Azure Configuration
+<<<<<<< HEAD
 subscription_id = "YOUR_AZURE_SUBSCRIPTION_ID" # Replace with your actual subscription ID
+=======
+subscription_id = "98712f56-5913-4408-99dc-21036074ccd7"
+>>>>>>> 738e89bdd8624542c1058d62c29480e325759506
 
 # Environment Configuration
 location            = "westus2"
