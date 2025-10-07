@@ -287,7 +287,7 @@ jobs:
             --ignore-unfixed \
             --exit-code 0
 
-  # PHASE 5: TERRAFORM INFRASTRUCTURE - COMPLETELY FIXED VERSION
+  # PHASE 5: TERRAFORM INFRASTRUCTURE - FIXED VERSION
   terraform_infrastructure:
     name: "5. Terraform Infrastructure - ${{ needs.checkout_and_setup.outputs.environment }}"
     runs-on: ubuntu-latest
@@ -365,7 +365,7 @@ jobs:
             -input=false \
             -upgrade
 
-      # COMPLETELY FIXED: Check and import existing infrastructure
+      # FIXED: Enhanced infrastructure import with subnet NSG association
       - name: Check and Import Existing Infrastructure
         if: github.event_name != 'pull_request'
         run: |
@@ -421,13 +421,16 @@ jobs:
           SUBNET_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Network/virtualNetworks/vnet-${{ needs.checkout_and_setup.outputs.environment }}-healthcare/subnets/snet-aks-${{ needs.checkout_and_setup.outputs.environment }}"
           NSG_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Network/networkSecurityGroups/nsg-aks-${{ needs.checkout_and_setup.outputs.environment }}"
           
-          # Check if subnet has NSG associated
-          if az network vnet subnet show \
+          # Check if subnet has NSG associated using Azure CLI
+          CURRENT_NSG=$(az network vnet subnet show \
             --resource-group $RESOURCE_GROUP \
             --vnet-name "vnet-${{ needs.checkout_and_setup.outputs.environment }}-healthcare" \
             --name "snet-aks-${{ needs.checkout_and_setup.outputs.environment }}" \
-            --query networkSecurityGroup.id -o tsv | grep -q "networkSecurityGroups/nsg-aks-${{ needs.checkout_and_setup.outputs.environment }}"; then
+            --query networkSecurityGroup.id -o tsv 2>/dev/null || echo "")
+          
+          if [[ -n "$CURRENT_NSG" && "$CURRENT_NSG" == *"networkSecurityGroups/nsg-aks-${{ needs.checkout_and_setup.outputs.environment }}"* ]]; then
             echo "🔄 Importing Subnet NSG Association"
+            # Import using the combined ID format: subnet_id|nsg_id
             terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} import \
               "module.network.azurerm_subnet_network_security_group_association.aks" \
               "$SUBNET_ID|$NSG_ID" 2>/dev/null || echo "⚠️ Subnet NSG Association may already be in state or import failed"
