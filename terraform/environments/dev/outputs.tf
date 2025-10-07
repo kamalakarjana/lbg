@@ -1,13 +1,4 @@
-output "acr_name" {
-  description = "ACR login server name"
-  value       = module.acr.acr_login_server
-}
-
-output "aks_cluster_name" {
-  description = "AKS cluster name"
-  value       = module.aks.aks_name
-}
-
+# Resource Group Outputs
 output "resource_group_name" {
   description = "Resource group name"
   value       = azurerm_resource_group.main.name
@@ -18,15 +9,26 @@ output "resource_group_location" {
   value       = azurerm_resource_group.main.location
 }
 
+# ACR Outputs
+output "acr_name" {
+  description = "ACR name"
+  value       = module.acr.acr_name
+}
+
 output "acr_login_server" {
   description = "ACR login server URL"
   value       = module.acr.acr_login_server
 }
 
-output "kube_config" {
-  description = "Kubernetes configuration"
-  value       = module.aks.kube_config
-  sensitive   = true
+# AKS Outputs
+output "aks_cluster_name" {
+  description = "AKS cluster name"
+  value       = module.aks.aks_name
+}
+
+output "aks_id" {
+  description = "AKS cluster ID"
+  value       = module.aks.aks_id
 }
 
 output "cluster_fqdn" {
@@ -35,22 +37,31 @@ output "cluster_fqdn" {
   sensitive   = true
 }
 
-output "unique_suffix" {
-  description = "Random suffix used for unique naming"
-  value       = random_id.suffix.hex
-}
-
+# Network Outputs
 output "aks_subnet_id" {
   description = "ID of the AKS subnet"
-  value       = azurerm_subnet.aks.id
+  value       = module.network.aks_subnet_id
 }
 
 output "vnet_id" {
   description = "ID of the virtual network"
-  value       = azurerm_virtual_network.main.id
+  value       = module.network.vnet_id
 }
 
 output "subnet_name" {
   description = "Name of the AKS subnet"
-  value       = azurerm_subnet.aks.name
+  value       = module.network.subnet_name
+}
+
+# Kubernetes Access
+output "kube_config" {
+  description = "Kubernetes configuration"
+  value       = module.aks.kube_config
+  sensitive   = true
+}
+
+# Utility Outputs
+output "unique_suffix" {
+  description = "Random suffix used for unique naming"
+  value       = random_id.suffix.hex
 }

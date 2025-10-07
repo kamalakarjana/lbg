@@ -38,7 +38,7 @@ variable "vm_size" {
 variable "kubernetes_version" {
   description = "Kubernetes version"
   type        = string
-  default     = "1.26.3"
+  default     = "1.33.3"
 }
 
 variable "subnet_id" {
@@ -54,5 +54,5 @@ variable "acr_id" {
 variable "tags" {
   description = "Resource tags"
   type        = map(string)
-  default = {}
+  default     = {}
 }

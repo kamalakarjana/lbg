@@ -1,37 +1,21 @@
+# Azure Configuration
+variable "subscription_id" {
+  description = "Azure subscription ID"
+  type        = string
+  sensitive   = true
+}
+
 variable "location" {
   description = "Azure region"
   type        = string
-  default     = "westus2"  # Make sure this is NOT eastus
+  default     = "westus2"
 }
 
-variable "node_count" {
-  description = "Number of AKS nodes"
-  type        = number
-  default     = 1  # Reduced to avoid quota issues
-}
-
-variable "vm_size" {
-  description = "VM size for AKS nodes"
-  type        = string
-  default     = "Standard_B2s"  # Smaller VM size
-}
-
+# Resource Naming
 variable "resource_group_name" {
   description = "Resource group name"
   type        = string
   default     = "healthcare-app-rg-dev"
-}
-
-variable "aks_cluster_name" {
-  description = "AKS cluster name"
-  type        = string
-  default     = "healthcare-aks-cluster-dev"
-}
-
-variable "acr_name" {
-  description = "ACR name"
-  type        = string
-  default     = "kamalj2kkkk"
 }
 
 variable "environment" {
@@ -46,9 +30,11 @@ variable "project_name" {
   default     = "healthcare"
 }
 
-variable "subscription_id" {
-  description = "Azure subscription ID"
+# ACR Configuration
+variable "acr_name" {
+  description = "ACR name base (will have random suffix added)"
   type        = string
+  default     = "kamalj2kkkk"
 }
 
 variable "acr_sku" {
@@ -57,17 +43,51 @@ variable "acr_sku" {
   default     = "Basic"
 }
 
+# AKS Configuration
+variable "aks_cluster_name" {
+  description = "AKS cluster name"
+  type        = string
+  default     = "healthcare-aks-cluster-dev"
+}
+
+variable "node_count" {
+  description = "Number of AKS nodes"
+  type        = number
+  default     = 1
+}
+
+variable "vm_size" {
+  description = "VM size for AKS nodes"
+  type        = string
+  default     = "Standard_B2s"
+}
+
 variable "kubernetes_version" {
   description = "Kubernetes version"
   type        = string
   default     = "1.33.3"
 }
 
+# Network Configuration
+variable "vnet_address_space" {
+  description = "Virtual network address space"
+  type        = list(string)
+  default     = ["10.0.0.0/16"]
+}
+
+variable "subnet_address_prefix" {
+  description = "Subnet address prefix"
+  type        = string
+  default     = "10.0.1.0/24"
+}
+
+# Tags
 variable "tags" {
   description = "Resource tags"
   type        = map(string)
   default = {
     Environment = "dev"
     Project     = "healthcare"
+    Team        = "devops"
   }
 }

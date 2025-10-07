@@ -4,6 +4,10 @@ resource "azurerm_virtual_network" "main" {
   location            = var.location
   address_space       = var.vnet_address_space
   tags                = var.tags
+
+  lifecycle {
+    prevent_destroy = false
+  }
 }
 
 resource "azurerm_subnet" "aks" {
@@ -12,27 +16,24 @@ resource "azurerm_subnet" "aks" {
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = [var.subnet_address_prefix]
 
-  # Explicit dependency to avoid timing issues
-  depends_on = [
-    azurerm_virtual_network.main
-  ]
-}
+  service_endpoints = ["Microsoft.ContainerRegistry"]
 
-# We'll comment out public IP creation for now to avoid quota issues
-# AKS will create its own load balancer automatically
-/*
-resource "azurerm_public_ip" "loadbalancer" {
-  name                = "pip-lb-${var.environment}-${var.project_name}"
-  resource_group_name = var.resource_group_name
-  location            = var.location
-  allocation_method   = "Static"
-  sku                 = "Standard"
-  tags                = var.tags
+  depends_on = [azurerm_virtual_network.main]
 }
-*/
 
 resource "azurerm_network_security_group" "aks" {
-  name                = "nsg-aks-dev"
+  name                = "nsg-aks-${var.environment}"
   location            = var.location
   resource_group_name = var.resource_group_name
+  tags                = var.tags
+}
+
+resource "azurerm_subnet_network_security_group_association" "aks" {
+  subnet_id                 = azurerm_subnet.aks.id
+  network_security_group_id = azurerm_network_security_group.aks.id
+
+  depends_on = [
+    azurerm_subnet.aks,
+    azurerm_network_security_group.aks
+  ]
 }

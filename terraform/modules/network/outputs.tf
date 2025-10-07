@@ -3,17 +3,9 @@ output "aks_subnet_id" {
   value       = azurerm_subnet.aks.id
 }
 
-# Comment out public IP output since we're not creating it
-/*
-output "loadbalancer_public_ip" {
-  description = "Load balancer public IP address"
-  value       = azurerm_public_ip.loadbalancer.ip_address
-}
-*/
-
-output "virtual_network_name" {
-  description = "Virtual network name"
-  value       = azurerm_virtual_network.main.name
+output "vnet_id" {
+  description = "Virtual network ID"
+  value       = azurerm_virtual_network.main.id
 }
 
 output "subnet_name" {
@@ -21,8 +13,12 @@ output "subnet_name" {
   value       = azurerm_subnet.aks.name
 }
 
+output "vnet_name" {
+  description = "Virtual network name"
+  value       = azurerm_virtual_network.main.name
+}
 
-output "vnet_id" {
-  description = "ID of the virtual network"
-  value       = azurerm_virtual_network.main.id
+output "network_security_group_id" {
+  description = "Network security group ID"
+  value       = azurerm_network_security_group.aks.id
 }

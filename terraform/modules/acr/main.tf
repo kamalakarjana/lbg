@@ -5,4 +5,8 @@ resource "azurerm_container_registry" "acr" {
   sku                 = var.sku
   admin_enabled       = true
   tags                = var.tags
+
+  lifecycle {
+    prevent_destroy = false
+  }
 }
