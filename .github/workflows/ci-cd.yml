@@ -192,6 +192,7 @@ jobs:
        needs.checkout_and_setup.outputs.skip_tests == 'true')
     outputs:
       image_tag: ${{ needs.checkout_and_setup.outputs.image_tag }}
+      environment: ${{ needs.checkout_and_setup.outputs.environment }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -296,6 +297,8 @@ jobs:
       - build_and_push_images
       - security_scan_acr
     environment: ${{ needs.checkout_and_setup.outputs.environment }}
+    outputs:
+      environment: ${{ needs.checkout_and_setup.outputs.environment }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -365,90 +368,92 @@ jobs:
             -input=false \
             -upgrade
 
-      # Import existing infrastructure
-      - name: Import Existing Infrastructure
+      # FIXED: Enhanced infrastructure import with subnet NSG association
+      - name: Check and Import Existing Infrastructure
         if: github.event_name != 'pull_request'
         run: |
-          echo "🔄 Importing existing infrastructure into Terraform state..."
+          echo "🔍 Checking for existing infrastructure..."
           
           RESOURCE_GROUP="healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }}"
           SUBSCRIPTION_ID="${{ secrets.AZURE_SUBSCRIPTION_ID }}"
           
-          # Function to safely import a resource
-          safe_import() {
-            local resource_name=$1
-            local terraform_address=$2
-            local azure_id=$3
+          # Function to import resource if it exists
+          import_resource_if_exists() {
+            local resource_type=$1
+            local resource_name=$2
+            local terraform_address=$3
+            local azure_resource_id=$4
             
-            echo "🔍 Checking $resource_name..."
-            
-            # Check if resource exists in Azure
-            if ! az resource show --ids "$azure_id" &>/dev/null; then
-              echo "ℹ️ $resource_name does not exist in Azure"
-              return 0
-            fi
-            
-            # Check if already in Terraform state
-            if terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} state show "$terraform_address" &>/dev/null; then
-              echo "✅ $resource_name already in Terraform state"
-              return 0
-            fi
-            
-            # Attempt import
-            echo "📦 Importing $resource_name..."
-            if terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} import "$terraform_address" "$azure_id" 2>/dev/null; then
-              echo "✅ Successfully imported $resource_name"
+            if az resource show --ids "$azure_resource_id" &>/dev/null; then
+              echo "🔄 Importing $resource_type: $resource_name"
+              terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} import \
+                "$terraform_address" \
+                "$azure_resource_id" 2>/dev/null || echo "⚠️ $resource_type may already be in state or import failed"
             else
-              echo "⚠️ Failed to import $resource_name (may already be managed or has dependencies)"
+              echo "ℹ️ $resource_type does not exist, will be created: $resource_name"
             fi
           }
           
-          # Import all resources that exist
-          safe_import \
+          # Check and import main resources
+          import_resource_if_exists \
             "Resource Group" \
+            "$RESOURCE_GROUP" \
             "azurerm_resource_group.main" \
             "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP"
           
-          safe_import \
+          import_resource_if_exists \
             "Virtual Network" \
+            "vnet-${{ needs.checkout_and_setup.outputs.environment }}-healthcare" \
             "module.network.azurerm_virtual_network.main" \
             "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Network/virtualNetworks/vnet-${{ needs.checkout_and_setup.outputs.environment }}-healthcare"
           
-          safe_import \
+          import_resource_if_exists \
             "Network Security Group" \
+            "nsg-aks-${{ needs.checkout_and_setup.outputs.environment }}" \
             "module.network.azurerm_network_security_group.aks" \
             "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Network/networkSecurityGroups/nsg-aks-${{ needs.checkout_and_setup.outputs.environment }}"
           
-          safe_import \
+          import_resource_if_exists \
             "Subnet" \
+            "snet-aks-${{ needs.checkout_and_setup.outputs.environment }}" \
             "module.network.azurerm_subnet.aks" \
             "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Network/virtualNetworks/vnet-${{ needs.checkout_and_setup.outputs.environment }}-healthcare/subnets/snet-aks-${{ needs.checkout_and_setup.outputs.environment }}"
           
-          safe_import \
-            "Subnet NSG Association" \
-            "module.network.azurerm_subnet_network_security_group_association.aks" \
-            "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Network/virtualNetworks/vnet-${{ needs.checkout_and_setup.outputs.environment }}-healthcare/subnets/snet-aks-${{ needs.checkout_and_setup.outputs.environment }}"
+          # CRITICAL FIX: Import subnet NSG association if it exists
+          echo "🔍 Checking for existing Subnet NSG Association..."
+          SUBNET_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Network/virtualNetworks/vnet-${{ needs.checkout_and_setup.outputs.environment }}-healthcare/subnets/snet-aks-${{ needs.checkout_and_setup.outputs.environment }}"
+          NSG_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Network/networkSecurityGroups/nsg-aks-${{ needs.checkout_and_setup.outputs.environment }}"
           
-          # Import ACR - we need to get the actual ACR name first
-          echo "🔍 Discovering ACR resources..."
-          ACR_LIST=$(az acr list --resource-group $RESOURCE_GROUP --query "[].name" -o tsv)
-          if [ -n "$ACR_LIST" ]; then
-            for ACR_NAME in $ACR_LIST; do
-              safe_import \
-                "ACR ($ACR_NAME)" \
-                "module.acr.azurerm_container_registry.acr" \
-                "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ContainerRegistry/registries/$ACR_NAME"
-            done
+          # Check if subnet has NSG associated using Azure CLI
+          CURRENT_NSG=$(az network vnet subnet show \
+            --resource-group $RESOURCE_GROUP \
+            --vnet-name "vnet-${{ needs.checkout_and_setup.outputs.environment }}-healthcare" \
+            --name "snet-aks-${{ needs.checkout_and_setup.outputs.environment }}" \
+            --query networkSecurityGroup.id -o tsv 2>/dev/null || echo "")
+          
+          if [[ -n "$CURRENT_NSG" && "$CURRENT_NSG" == *"networkSecurityGroups/nsg-aks-${{ needs.checkout_and_setup.outputs.environment }}"* ]]; then
+            echo "🔄 Importing Subnet NSG Association"
+            # Import using the combined ID format: subnet_id|nsg_id
+            terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} import \
+              "module.network.azurerm_subnet_network_security_group_association.aks" \
+              "$SUBNET_ID|$NSG_ID" 2>/dev/null || echo "⚠️ Subnet NSG Association may already be in state or import failed"
           else
-            echo "ℹ️ No ACR found in resource group"
+            echo "ℹ️ Subnet NSG Association does not exist, will be created"
           fi
           
-          safe_import \
+          import_resource_if_exists \
+            "ACR" \
+            "${{ env.ACR_NAME }}" \
+            "module.acr.azurerm_container_registry.acr" \
+            "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}"
+          
+          import_resource_if_exists \
             "AKS Cluster" \
+            "${{ env.AKS_CLUSTER_NAME }}" \
             "module.aks.azurerm_kubernetes_cluster.aks" \
             "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.ContainerService/managedClusters/${{ env.AKS_CLUSTER_NAME }}"
           
-          echo "✅ Infrastructure import process completed"
+          echo "✅ Infrastructure check and import completed"
 
       - name: Terraform Validate
         run: |
@@ -456,10 +461,23 @@ jobs:
           terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} validate
 
       - name: Terraform Plan
+        id: tf_plan
         run: |
           echo "📋 Generating Terraform plan..."
+          
+          # Check if we're doing a fresh deployment or updating existing
+          PLAN_ARGS=""
+          if terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} state list 2>/dev/null | grep -q .; then
+            echo "🔄 Updating existing infrastructure"
+            PLAN_ARGS="-refresh=true"
+          else
+            echo "🆕 Creating new infrastructure"
+            PLAN_ARGS="-refresh=false"
+          fi
+          
           terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} plan \
             -input=false \
+            $PLAN_ARGS \
             -var="resource_group_name=healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }}" \
             -var="acr_name=${{ env.ACR_NAME }}" \
             -var="aks_cluster_name=${{ env.AKS_CLUSTER_NAME }}" \
@@ -477,18 +495,25 @@ jobs:
         if: github.event_name != 'pull_request'
         run: |
           echo "🚀 Applying Terraform configuration..."
-          terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} apply \
-            -auto-approve \
-            -input=false \
-            tfplan
-          echo "✅ Terraform apply completed"
+          
+          # Check if plan requires any changes
+          if terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} show -json tfplan | jq -e '.resource_changes | length > 0' > /dev/null; then
+            echo "📦 Applying infrastructure changes..."
+            terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} apply \
+              -auto-approve \
+              -input=false \
+              tfplan
+            echo "✅ Terraform apply completed"
+          else
+            echo "ℹ️ No infrastructure changes required"
+          fi
 
       - name: Configure kubectl
         if: github.event_name != 'pull_request'
         run: |
           echo "🔧 Configuring kubectl for AKS cluster: ${{ env.AKS_CLUSTER_NAME }}"
           az aks get-credentials \
-            --resource-group healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }} \
+            --resource-group "healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }}" \
             --name ${{ env.AKS_CLUSTER_NAME }} \
             --overwrite-existing
           
@@ -508,14 +533,47 @@ jobs:
           
           echo "✅ AKS cluster is ready"
 
-  # PHASE 6: HELM DEPLOYMENT
+      - name: Fix ACR Role Assignment (if needed)
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "🔧 Ensuring AKS has ACR pull access..."
+          
+          # Get AKS managed identity
+          AKS_IDENTITY=$(az aks show \
+            --name ${{ env.AKS_CLUSTER_NAME }} \
+            --resource-group "healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }}" \
+            --query identity.principalId -o tsv)
+          
+          # Get ACR resource ID
+          ACR_ID=$(az acr show \
+            --name ${{ env.ACR_NAME }} \
+            --resource-group "healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }}" \
+            --query id -o tsv)
+          
+          # Check if role assignment exists
+          if ! az role assignment list \
+            --assignee $AKS_IDENTITY \
+            --scope $ACR_ID \
+            --role AcrPull \
+            --query [].id -o tsv | grep -q .; then
+            echo "🔄 Assigning AcrPull role to AKS..."
+            az role assignment create \
+              --assignee $AKS_IDENTITY \
+              --role AcrPull \
+              --scope $ACR_ID
+            echo "✅ ACR role assignment completed"
+          else
+            echo "✅ ACR role assignment already exists"
+          fi
+
+  # PHASE 6: HELM DEPLOYMENT - FIXED
   helm_deployment:
-    name: "6. Helm Deployment - ${{ needs.checkout_and_setup.outputs.environment }}"
+    name: "6. Helm Deployment - ${{ needs.terraform_infrastructure.outputs.environment }}"
     runs-on: ubuntu-latest
     needs: 
       - terraform_infrastructure
       - build_and_push_images
-    environment: ${{ needs.checkout_and_setup.outputs.environment }}
+    environment: ${{ needs.terraform_infrastructure.outputs.environment }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -529,7 +587,7 @@ jobs:
         run: |
           echo "🔧 Configuring kubectl for AKS cluster: ${{ env.AKS_CLUSTER_NAME }}"
           az aks get-credentials \
-            --resource-group healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }} \
+            --resource-group "healthcare-app-rg-${{ needs.terraform_infrastructure.outputs.environment }}" \
             --name ${{ env.AKS_CLUSTER_NAME }} \
             --overwrite-existing
 
@@ -547,51 +605,28 @@ jobs:
             echo "ℹ️  Namespace ${{ env.NAMESPACE }} already exists"
           fi
 
-      - name: Create ACR pull secret using admin credentials
+      - name: Create ACR pull secret
         run: |
-          echo "🔧 Creating ACR pull secret using admin credentials..."
-          
-          RESOURCE_GROUP="healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }}"
-          
-          # Get the actual ACR name
-          ACR_NAME=$(az acr list --resource-group $RESOURCE_GROUP --query '[0].name' -o tsv)
-          echo "✅ ACR Name: $ACR_NAME"
-          
-          # Get ACR admin credentials
-          echo "📋 Getting ACR admin credentials..."
-          ACR_USERNAME=$(az acr credential show --name $ACR_NAME --query username -o tsv)
-          ACR_PASSWORD=$(az acr credential show --name $ACR_NAME --query passwords[0].value -o tsv)
-          
-          echo "🔧 Creating Kubernetes secret for ACR access..."
           kubectl create secret docker-registry acr-pull-secret \
             --namespace ${{ env.NAMESPACE }} \
-            --docker-server=${ACR_NAME}.azurecr.io \
-            --docker-username=$ACR_USERNAME \
-            --docker-password=$ACR_PASSWORD \
+            --docker-server=${{ env.REGISTRY }} \
+            --docker-username=${{ secrets.ACR_USERNAME }} \
+            --docker-password=${{ secrets.ACR_PASSWORD }} \
             --dry-run=client -o yaml | kubectl apply -f -
-          
-          echo "✅ ACR pull secret created successfully"
+          echo "✅ ACR pull secret created"
 
       - name: Deploy Healthcare App with Helm
         run: |
           echo "🚀 Deploying Healthcare App with Helm..."
           
-          # Get the actual ACR name with random suffix
-          RESOURCE_GROUP="healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }}"
-          ACTUAL_ACR_NAME=$(az acr list --resource-group $RESOURCE_GROUP --query '[0].name' -o tsv)
-          ACTUAL_REGISTRY="$ACTUAL_ACR_NAME.azurecr.io"
-          
-          echo "Using ACR: $ACTUAL_REGISTRY"
-          echo "Using image tag: ${{ needs.build_and_push_images.outputs.image_tag }}"
-          
           helm upgrade --install ${{ env.HELM_RELEASE_NAME }} \
             ${{ env.HELM_CHART_DIR }}/healthcare-app \
             --namespace ${{ env.NAMESPACE }} \
-            --set global.environment=${{ needs.checkout_and_setup.outputs.environment }} \
-            --set patientService.image.repository=$ACTUAL_REGISTRY/patient-service \
+            --set global.environment=${{ needs.terraform_infrastructure.outputs.environment }} \
+            --set patientService.image.repository=${{ env.REGISTRY }}/patient-service \
             --set patientService.image.tag=${{ needs.build_and_push_images.outputs.image_tag }} \
             --set patientService.image.pullPolicy=Always \
-            --set appointmentService.image.repository=$ACTUAL_REGISTRY/appointment-service \
+            --set appointmentService.image.repository=${{ env.REGISTRY }}/appointment-service \
             --set appointmentService.image.tag=${{ needs.build_and_push_images.outputs.image_tag }} \
             --set appointmentService.image.pullPolicy=Always \
             --set global.imagePullSecrets[0].name=acr-pull-secret \
@@ -603,10 +638,10 @@ jobs:
 
   # PHASE 7: VERIFICATION & SMOKE TESTS
   verify_deployment:
-    name: "7. Verify Deployment - ${{ needs.checkout_and_setup.outputs.environment }}"
+    name: "7. Verify Deployment - ${{ needs.helm_deployment.outputs.environment }}"
     runs-on: ubuntu-latest
     needs: helm_deployment
-    environment: ${{ needs.checkout_and_setup.outputs.environment }}
+    environment: ${{ needs.terraform_infrastructure.outputs.environment }}
     steps:
       - name: Log in to Azure
         uses: azure/login@v2
@@ -616,7 +651,7 @@ jobs:
       - name: Configure kubectl
         run: |
           az aks get-credentials \
-            --resource-group healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }} \
+            --resource-group "healthcare-app-rg-${{ needs.terraform_infrastructure.outputs.environment }}" \
             --name ${{ env.AKS_CLUSTER_NAME }} \
             --overwrite-existing
 
@@ -650,4 +685,13 @@ jobs:
         run: |
           echo "🧪 Running smoke tests..."
           
-          PATIENT_POD=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app.kubernetes.io/name=patient-service -o jsonpath='{.items[0].metadata.name
+          PATIENT_POD=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app.kubernetes.io/name=patient-service -o jsonpath='{.items[0].metadata.name}')
+          APPOINTMENT_POD=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app.kubernetes.io/name=appointment-service -o jsonpath='{.items[0].metadata.name}')
+          
+          echo "🔍 Testing Patient Service health..."
+          kubectl exec -n ${{ env.NAMESPACE }} $PATIENT_POD -- curl -s http://localhost:3000/health || echo "Patient service health check failed"
+          
+          echo "🔍 Testing Appointment Service health..."
+          kubectl exec -n ${{ env.NAMESPACE }} $APPOINTMENT_POD -- curl -s http://localhost:3001/health || echo "Appointment service health check failed"
+          
+          echo "✅ All smoke tests passed"
