@@ -322,7 +322,7 @@ jobs:
             echo "📦 Creating resource group: ${{ env.RESOURCE_GROUP_NAME }}"
             az group create \
               --name ${{ env.RESOURCE_GROUP_NAME }} \
-              --location eastus \
+              --location westus2 \
               --tags environment=${{ needs.checkout_and_setup.outputs.environment }} project=healthcare-app
           else
             echo "✅ Resource group already exists: ${{ env.RESOURCE_GROUP_NAME }}"
@@ -450,7 +450,7 @@ jobs:
             -var="acr_name=${{ env.ACR_NAME }}" \
             -var="aks_cluster_name=${{ env.AKS_CLUSTER_NAME }}" \
             -var="environment=${{ needs.checkout_and_setup.outputs.environment }}" \
-            -var="location=eastus" \
+            -var="location=westus2" \
             -var="subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }}" \
             -var="os_disk_size_gb=30" \
             -var="vm_size=Standard_B2s" \
