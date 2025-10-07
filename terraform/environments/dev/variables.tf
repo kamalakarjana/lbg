@@ -62,10 +62,16 @@ variable "vm_size" {
   default     = "Standard_B2s"
 }
 
+variable "os_disk_size_gb" {
+  description = "OS disk size in GB for AKS nodes"
+  type        = number
+  default     = 30
+}
+
 variable "kubernetes_version" {
   description = "Kubernetes version"
   type        = string
-  default     = "1.33.3"
+  default     = "1.26.3"
 }
 
 # Network Configuration
@@ -90,11 +96,4 @@ variable "tags" {
     Project     = "healthcare"
     Team        = "devops"
   }
-}
-
-
-variable "os_disk_size_gb" {
-  description = "OS disk size in GB for AKS nodes"
-  type        = number
-  default     = 30
 }

@@ -33,12 +33,18 @@ variable "vm_size" {
 variable "kubernetes_version" {
   description = "Kubernetes version"
   type        = string
-  default     = "1.33.3"
+  default     = "1.26.3"
 }
 
 variable "subnet_id" {
   description = "Subnet ID for AKS"
   type        = string
+}
+
+variable "os_disk_size_gb" {
+  description = "OS disk size in GB for AKS nodes"
+  type        = number
+  default     = 30
 }
 
 variable "tags" {
