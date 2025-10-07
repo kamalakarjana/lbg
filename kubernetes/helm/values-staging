@@ -1,0 +1,36 @@
+global:
+  environment: staging
+
+patientService:
+  replicaCount: 3
+  tag: latest
+  serviceType: ClusterIP
+  hpa:
+    minReplicas: 2
+    maxReplicas: 8
+
+appointmentService:
+  replicaCount: 3
+  tag: latest
+  serviceType: ClusterIP
+  hpa:
+    minReplicas: 2
+    maxReplicas: 8
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: healthcare-app.staging.example.com
+
+persistence:
+  enabled: true
+  size: 5Gi
+  storageClass: "managed-premium"
+
+image:
+  credentials:
+    username: "healthcareappacr160689"
+    password: "Si+v8gudBdVNH2GXguwoZqJq5CwRzj9Q5XSSX9hUOR+ACRDZOsvM"
