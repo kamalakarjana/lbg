@@ -92,3 +92,9 @@ variable "tags" {
   }
 }
 
+
+variable "os_disk_size_gb" {
+  description = "OS disk size in GB for AKS nodes"
+  type        = number
+  default     = 30
+}
