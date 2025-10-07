@@ -3,7 +3,7 @@ resource "azurerm_kubernetes_cluster" "main" {
   location            = var.location
   resource_group_name = var.resource_group_name
   dns_prefix          = "${var.aks_cluster_name}-${var.environment}"
-  kubernetes_version  = var.kubernetes_version
+  kubernetes_version  = var.kubernetes_version  # Use variable instead of hardcoded value
 
   default_node_pool {
     name                = "default"
@@ -13,7 +13,6 @@ resource "azurerm_kubernetes_cluster" "main" {
     enable_auto_scaling = true
     min_count           = var.min_count
     max_count           = var.max_count
-    # Remove node_count when enable_auto_scaling is true
   }
 
   identity {

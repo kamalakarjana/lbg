@@ -32,6 +32,13 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Get Current AKS Version
+        id: get_aks_version
+        run: |
+          CURRENT_VERSION=$(az aks show --name lbg-aks-cluster-dev --resource-group rg-lbg-demo-dev --query kubernetesVersion -o tsv)
+          echo "Current AKS version: $CURRENT_VERSION"
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+
       - name: Terraform Init
         run: |
           cd infrastructure
@@ -73,7 +80,7 @@ jobs:
             -var="vnet_name=vnet-dev-lbg-app" \
             -var="public_ip_name=pip-lb-dev-lbg-app" \
             -var="vm_size=Standard_D2s_v3" \
-            -var="kubernetes_version=1.27.7" \
+            -var="kubernetes_version=${{ steps.get_aks_version.outputs.current_version || '1.33.3' }}" \
             -var="min_count=1" \
             -var="max_count=5" \
             -out=tfplan
