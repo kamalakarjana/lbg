@@ -1,0 +1,36 @@
+global:
+  environment: dev
+
+patientService:
+  replicaCount: 2
+  tag: latest
+  serviceType: ClusterIP
+  hpa:
+    minReplicas: 1
+    maxReplicas: 5
+
+appointmentService:
+  replicaCount: 2
+  tag: latest
+  serviceType: ClusterIP
+  hpa:
+    minReplicas: 1
+    maxReplicas: 5
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+  hosts:
+    - host: healthcare-app.dev.local
+
+persistence:
+  enabled: false
+  size: 1Gi
+  storageClass: "default"
+
+image:
+  credentials:
+    username: "healthcareappacr160689"
+    password: "Si+v8gudBdVNH2GXguwoZqJq5CwRzj9Q5XSSX9hUOR+ACRDZOsvM"
