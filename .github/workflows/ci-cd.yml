@@ -56,6 +56,17 @@ jobs:
           cd infrastructure
           terraform fmt -recursive
 
+      - name: Import Existing Resource Group
+        run: |
+          cd infrastructure
+          echo "Importing existing resource group into Terraform state..."
+          terraform import module.resource_group.azurerm_resource_group.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-lbg-demo-dev || echo "Resource group may already be imported or import failed, continuing..."
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
       - name: Terraform Plan
         run: |
           cd infrastructure
@@ -71,17 +82,6 @@ jobs:
             -var="vm_size=Standard_D2s_v3" \
             -var="kubernetes_version=1.27.7" \
             -out=tfplan
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-      - name: Import Existing Resource Group
-        run: |
-          cd infrastructure
-          echo "Importing existing resource group into Terraform state..."
-          terraform import module.resource_group.azurerm_resource_group.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-lbg-demo-dev || echo "Resource group may already be imported or import failed, continuing..."
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
