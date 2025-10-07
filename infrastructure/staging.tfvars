@@ -1,0 +1,10 @@
+environment         = "staging"
+resource_group_name = "healthcare-app-rg"
+location            = "East US"
+acr_name            = "healthcareappacr160689"
+aks_cluster_name    = "healthcare-aks-cluster"
+vnet_name           = "vnet-staging-healthcare-app"
+public_ip_name      = "pip-lb-staging-healthcare-app"
+node_count          = 3
+vm_size             = "Standard_D2s_v3"
+kubernetes_version  = "1.33.3"

@@ -1,0 +1,10 @@
+environment         = "dev"
+resource_group_name = "healthcare-app-rg"
+location            = "East US"
+acr_name            = "healthcareappacr160689"
+aks_cluster_name    = "healthcare-aks-cluster"
+vnet_name           = "vnet-dev-healthcare-app"
+public_ip_name      = "pip-lb-dev-healthcare-app"
+node_count          = 2
+vm_size             = "Standard_D2s_v3"
+kubernetes_version  = "1.33.3"
