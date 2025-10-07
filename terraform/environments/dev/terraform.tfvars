@@ -1,7 +1,7 @@
 subscription_id      = "98712f56-5913-4408-99dc-21036074ccd7"
 resource_group_name  = "healthcare-app-rg-dev"
 acr_name            = "healthcareappacrdev"
-location            = "Central US"
+location            = "westus2"
 environment         = "dev"
 project_name        = "healthcare-app"
 acr_sku             = "Basic"

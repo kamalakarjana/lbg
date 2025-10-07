@@ -19,7 +19,7 @@ variable "acr_name" {
 variable "location" {
   description = "Azure region"
   type        = string
-  default     = "East US"
+  default     = "westus2"
 }
 
 variable "environment" {
