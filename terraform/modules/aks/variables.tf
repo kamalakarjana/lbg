@@ -1,3 +1,8 @@
+variable "cluster_name" {
+  description = "AKS cluster name"
+  type        = string
+}
+
 variable "resource_group_name" {
   description = "Name of the resource group"
   type        = string
@@ -13,10 +18,9 @@ variable "environment" {
   type        = string
 }
 
-variable "project_name" {
-  description = "Project name for tagging"
+variable "dns_prefix" {
+  description = "DNS prefix for AKS"
   type        = string
-  default     = "healthcare-app"
 }
 
 variable "node_count" {
@@ -34,7 +38,7 @@ variable "vm_size" {
 variable "kubernetes_version" {
   description = "Kubernetes version"
   type        = string
-  default     = "1.33.3"
+  default     = "1.26.3"
 }
 
 variable "subnet_id" {
@@ -50,15 +54,5 @@ variable "acr_id" {
 variable "tags" {
   description = "Resource tags"
   type        = map(string)
-  default = {
-    Environment = "dev"
-    Project     = "healthcare-app"
-    Team        = "devops"
-  }
-}
-
-variable "os_disk_size_gb" {
-  description = "The size of the OS disk for each node in GB"
-  type        = number
-  default     = 30
+  default = {}
 }

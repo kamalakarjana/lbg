@@ -1,3 +1,4 @@
+# backend.tf or in your main.tf
 terraform {
   backend "azurerm" {
     resource_group_name  = "tfstate-rg-dev"
@@ -16,6 +17,10 @@ terraform {
 }
 
 provider "azurerm" {
-  features {}
+  features {
+    resource_group {
+      prevent_deletion_if_contains_resources = false
+    }
+  }
+  subscription_id = var.subscription_id
 }
-

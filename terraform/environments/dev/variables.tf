@@ -7,13 +7,13 @@ variable "subscription_id" {
 variable "resource_group_name" {
   description = "Name of the resource group"
   type        = string
-  default     = "healthcare-app-rg"
+  default     = "healthcare-app-rg-dev"
 }
 
 variable "acr_name" {
   description = "Name of the Azure Container Registry"
   type        = string
-  default     = "healthcareappacr160689"
+  default     = "healthcareappacrdev"
 }
 
 variable "location" {
@@ -55,7 +55,7 @@ variable "aks_vm_size" {
 variable "kubernetes_version" {
   description = "Kubernetes version"
   type        = string
-  default     = "1.33.3"
+  default     = "1.26.3"
 }
 
 variable "tags" {
@@ -66,22 +66,4 @@ variable "tags" {
     Project     = "healthcare-app"
     Team        = "devops"
   }
-}
-
-variable "os_disk_size_gb" {
-  description = "The size of the OS disk for each node in GB"
-  type        = number
-  default     = 30
-}
-
-variable "vm_size" {
-  description = "The VM size for AKS nodes"
-  type        = string
-  default     = "Standard_B2s"
-}
-
-variable "node_count" {
-  description = "The number of AKS nodes"
-  type        = number
-  default     = 1
 }
