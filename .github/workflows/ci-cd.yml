@@ -72,9 +72,10 @@ jobs:
             -var="aks_cluster_name=lbg-aks-cluster" \
             -var="vnet_name=vnet-dev-lbg-app" \
             -var="public_ip_name=pip-lb-dev-lbg-app" \
-            -var="node_count=2" \
             -var="vm_size=Standard_D2s_v3" \
             -var="kubernetes_version=1.27.7" \
+            -var="min_count=1" \
+            -var="max_count=5" \
             -out=tfplan
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}

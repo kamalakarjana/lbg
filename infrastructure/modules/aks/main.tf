@@ -3,30 +3,30 @@ resource "azurerm_kubernetes_cluster" "main" {
   location            = var.location
   resource_group_name = var.resource_group_name
   dns_prefix          = "${var.aks_cluster_name}-${var.environment}"
-  kubernetes_version  = "1.33.3"
+  kubernetes_version  = var.kubernetes_version
 
   default_node_pool {
     name                = "default"
-    node_count          = 2
-    vm_size             = "Standard_D2s_v3"
+    vm_size             = var.vm_size
     vnet_subnet_id      = var.subnet_id
     type                = "VirtualMachineScaleSets"
     enable_auto_scaling = true
-    min_count           = 1
-    max_count           = 5
+    min_count           = var.min_count
+    max_count           = var.max_count
+    # Remove node_count when enable_auto_scaling is true
   }
 
   identity {
     type = "SystemAssigned"
   }
 
-
   network_profile {
-  network_plugin = "azure"
-  network_policy = "azure"
-  service_cidr   = "10.0.2.0/24"
-  dns_service_ip = "10.0.2.10"
+    network_plugin = "azure"
+    network_policy = "azure"
+    service_cidr   = "10.0.2.0/24"
+    dns_service_ip = "10.0.2.10"
   }
+
   role_based_access_control_enabled = true
 
   tags = {

@@ -78,3 +78,15 @@ variable "dns_service_ip" {
   type        = string
   default     = "10.0.2.10"
 }
+
+variable "min_count" {
+  description = "Minimum number of nodes for auto-scaling"
+  type        = number
+  default     = 1
+}
+
+variable "max_count" {
+  description = "Maximum number of nodes for auto-scaling"
+  type        = number
+  default     = 5
+}

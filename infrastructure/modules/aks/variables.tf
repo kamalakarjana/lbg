@@ -51,3 +51,15 @@ variable "vm_size" {
   type        = string
   default     = "Standard_D2s_v3"
 }
+
+variable "min_count" {
+  description = "Minimum number of nodes for auto-scaling"
+  type        = number
+  default     = 1
+}
+
+variable "max_count" {
+  description = "Maximum number of nodes for auto-scaling"
+  type        = number
+  default     = 5
+}
