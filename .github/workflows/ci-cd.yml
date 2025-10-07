@@ -32,14 +32,14 @@ jobs:
           cd infrastructure
           terraform init \
             -backend-config="resource_group_name=rg-lbg-demo-dev" \
-            -backend-config="storage_account_name=${{ secrets.STORAGE_ACCOUNT_NAME }}" \
+            -backend-config="storage_account_name=tfstatestorageacc0212" \
             -backend-config="container_name=lbg-02-12-1994" \
             -backend-config="key=terraform.lbg-02-12-1994"
         env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+         ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+         ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+         ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+         ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
       - name: Terraform Validate
         run: |
