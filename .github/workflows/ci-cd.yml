@@ -697,6 +697,7 @@ jobs:
           
           echo "✅ All pods are ready"
 
+          
       - name: Run smoke tests
         run: |
           echo "🧪 Running smoke tests..."
