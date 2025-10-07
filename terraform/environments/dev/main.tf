@@ -60,6 +60,7 @@ module "aks" {
   vm_size            = var.vm_size
   kubernetes_version = var.kubernetes_version
   subnet_id          = module.network.aks_subnet_id
+  os_disk_size_gb    = var.os_disk_size_gb
   tags               = local.common_tags
 
   depends_on = [

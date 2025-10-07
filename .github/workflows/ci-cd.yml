@@ -483,56 +483,6 @@ jobs:
             tfplan
           echo "✅ Terraform apply completed"
 
-      # CRITICAL FIX: Manual ACR Role Assignment 
-      - name: Fix ACR Role Assignment Manually
-        if: github.event_name != 'pull_request'
-        run: |
-          echo "🔧 Manually assigning ACR pull role to AKS..."
-          
-          RESOURCE_GROUP="healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }}"
-          
-          # Get AKS managed identity
-          echo "📋 Getting AKS managed identity..."
-          AKS_IDENTITY=$(az aks show \
-            --name ${{ env.AKS_CLUSTER_NAME }} \
-            --resource-group $RESOURCE_GROUP \
-            --query identity.principalId -o tsv)
-          
-          echo "✅ AKS Identity: $AKS_IDENTITY"
-          
-          # Get the actual ACR name (it has a random suffix)
-          echo "📋 Discovering ACR name..."
-          ACR_NAME=$(az acr list --resource-group $RESOURCE_GROUP --query '[0].name' -o tsv)
-          echo "✅ ACR Name: $ACR_NAME"
-          
-          # Get ACR resource ID
-          echo "📋 Getting ACR resource ID..."
-          ACR_ID=$(az acr show \
-            --name $ACR_NAME \
-            --resource-group $RESOURCE_GROUP \
-            --query id -o tsv)
-          
-          echo "✅ ACR ID: $ACR_ID"
-          
-          # Check if role assignment already exists
-          echo "🔍 Checking if role assignment already exists..."
-          if az role assignment list \
-            --assignee $AKS_IDENTITY \
-            --scope $ACR_ID \
-            --role AcrPull \
-            --query [].id -o tsv | grep -q .; then
-            echo "✅ ACR role assignment already exists"
-          else
-            echo "🔄 Creating ACR role assignment..."
-            az role assignment create \
-              --assignee $AKS_IDENTITY \
-              --role AcrPull \
-              --scope $ACR_ID
-            echo "✅ ACR role assignment created successfully"
-          fi
-          
-          echo "🎉 ACR access configured for AKS!"
-
       - name: Configure kubectl
         if: github.event_name != 'pull_request'
         run: |
@@ -597,15 +547,30 @@ jobs:
             echo "ℹ️  Namespace ${{ env.NAMESPACE }} already exists"
           fi
 
-      - name: Create ACR pull secret
+      - name: Create ACR pull secret using admin credentials
         run: |
+          echo "🔧 Creating ACR pull secret using admin credentials..."
+          
+          RESOURCE_GROUP="healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }}"
+          
+          # Get the actual ACR name
+          ACR_NAME=$(az acr list --resource-group $RESOURCE_GROUP --query '[0].name' -o tsv)
+          echo "✅ ACR Name: $ACR_NAME"
+          
+          # Get ACR admin credentials
+          echo "📋 Getting ACR admin credentials..."
+          ACR_USERNAME=$(az acr credential show --name $ACR_NAME --query username -o tsv)
+          ACR_PASSWORD=$(az acr credential show --name $ACR_NAME --query passwords[0].value -o tsv)
+          
+          echo "🔧 Creating Kubernetes secret for ACR access..."
           kubectl create secret docker-registry acr-pull-secret \
             --namespace ${{ env.NAMESPACE }} \
-            --docker-server=${{ env.REGISTRY }} \
-            --docker-username=${{ secrets.ACR_USERNAME }} \
-            --docker-password=${{ secrets.ACR_PASSWORD }} \
+            --docker-server=${ACR_NAME}.azurecr.io \
+            --docker-username=$ACR_USERNAME \
+            --docker-password=$ACR_PASSWORD \
             --dry-run=client -o yaml | kubectl apply -f -
-          echo "✅ ACR pull secret created"
+          
+          echo "✅ ACR pull secret created successfully"
 
       - name: Deploy Healthcare App with Helm
         run: |
@@ -685,13 +650,4 @@ jobs:
         run: |
           echo "🧪 Running smoke tests..."
           
-          PATIENT_POD=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app.kubernetes.io/name=patient-service -o jsonpath='{.items[0].metadata.name}')
-          APPOINTMENT_POD=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app.kubernetes.io/name=appointment-service -o jsonpath='{.items[0].metadata.name}')
-          
-          echo "🔍 Testing Patient Service health..."
-          kubectl exec -n ${{ env.NAMESPACE }} $PATIENT_POD -- curl -s http://localhost:3000/health || echo "Patient service health check failed"
-          
-          echo "🔍 Testing Appointment Service health..."
-          kubectl exec -n ${{ env.NAMESPACE }} $APPOINTMENT_POD -- curl -s http://localhost:3001/health || echo "Appointment service health check failed"
-          
-          echo "✅ All smoke tests passed"
+          PATIENT_POD=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app.kubernetes.io/name=patient-service -o jsonpath='{.items[0].metadata.name

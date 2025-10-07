@@ -25,6 +25,8 @@ resource "azurerm_kubernetes_cluster" "aks" {
     dns_service_ip = "10.10.0.10"
   }
 
+  role_based_access_control_enabled = true
+
   tags = var.tags
 
   lifecycle {
@@ -34,5 +36,3 @@ resource "azurerm_kubernetes_cluster" "aks" {
     ]
   }
 }
-
-# REMOVED: Role assignment is now handled manually in the pipeline
