@@ -287,7 +287,7 @@ jobs:
             --ignore-unfixed \
             --exit-code 0
 
-  # PHASE 5: TERRAFORM INFRASTRUCTURE - COMPLETELY FIXED VERSION
+  # PHASE 5: TERRAFORM INFRASTRUCTURE - FIXED VERSION
   terraform_infrastructure:
     name: "5. Terraform Infrastructure - ${{ needs.checkout_and_setup.outputs.environment }}"
     runs-on: ubuntu-latest
@@ -365,7 +365,7 @@ jobs:
             -input=false \
             -upgrade
 
-      # ROBUST: Import all existing infrastructure
+      # Import existing infrastructure
       - name: Import Existing Infrastructure
         if: github.event_name != 'pull_request'
         run: |
@@ -483,7 +483,7 @@ jobs:
             tfplan
           echo "✅ Terraform apply completed"
 
-      # CRITICAL FIX: Manual ACR Role Assignment (to avoid permission issues)
+      # CRITICAL FIX: Manual ACR Role Assignment 
       - name: Fix ACR Role Assignment Manually
         if: github.event_name != 'pull_request'
         run: |
@@ -492,26 +492,30 @@ jobs:
           RESOURCE_GROUP="healthcare-app-rg-${{ needs.checkout_and_setup.outputs.environment }}"
           
           # Get AKS managed identity
+          echo "📋 Getting AKS managed identity..."
           AKS_IDENTITY=$(az aks show \
             --name ${{ env.AKS_CLUSTER_NAME }} \
             --resource-group $RESOURCE_GROUP \
             --query identity.principalId -o tsv)
           
-          echo "AKS Identity: $AKS_IDENTITY"
+          echo "✅ AKS Identity: $AKS_IDENTITY"
           
           # Get the actual ACR name (it has a random suffix)
+          echo "📋 Discovering ACR name..."
           ACR_NAME=$(az acr list --resource-group $RESOURCE_GROUP --query '[0].name' -o tsv)
-          echo "ACR Name: $ACR_NAME"
+          echo "✅ ACR Name: $ACR_NAME"
           
           # Get ACR resource ID
+          echo "📋 Getting ACR resource ID..."
           ACR_ID=$(az acr show \
             --name $ACR_NAME \
             --resource-group $RESOURCE_GROUP \
             --query id -o tsv)
           
-          echo "ACR ID: $ACR_ID"
+          echo "✅ ACR ID: $ACR_ID"
           
           # Check if role assignment already exists
+          echo "🔍 Checking if role assignment already exists..."
           if az role assignment list \
             --assignee $AKS_IDENTITY \
             --scope $ACR_ID \
@@ -526,6 +530,8 @@ jobs:
               --scope $ACR_ID
             echo "✅ ACR role assignment created successfully"
           fi
+          
+          echo "🎉 ACR access configured for AKS!"
 
       - name: Configure kubectl
         if: github.event_name != 'pull_request'

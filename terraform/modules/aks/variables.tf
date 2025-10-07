@@ -13,11 +13,6 @@ variable "location" {
   type        = string
 }
 
-variable "environment" {
-  description = "Environment name"
-  type        = string
-}
-
 variable "dns_prefix" {
   description = "DNS prefix for AKS"
   type        = string
@@ -43,11 +38,6 @@ variable "kubernetes_version" {
 
 variable "subnet_id" {
   description = "Subnet ID for AKS"
-  type        = string
-}
-
-variable "acr_id" {
-  description = "ACR resource ID"
   type        = string
 }
 
