@@ -1,0 +1,37 @@
+global:
+  environment: prod
+
+patientService:
+  replicaCount: 4
+  tag: latest
+  serviceType: ClusterIP
+  hpa:
+    minReplicas: 3
+    maxReplicas: 10
+
+appointmentService:
+  replicaCount: 4
+  tag: latest
+  serviceType: ClusterIP
+  hpa:
+    minReplicas: 3
+    maxReplicas: 10
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: healthcare-app.prod.example.com
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: "managed-premium"
+
+image:
+  credentials:
+    username: "healthcareappacr160689"
+    password: "Si+v8gudBdVNH2GXguwoZqJq5CwRzj9Q5XSSX9hUOR+ACRDZOsvM"
