@@ -67,3 +67,27 @@ variable "tags" {
     Team        = "devops"
   }
 }
+
+variable "aks_cluster_name" {
+  description = "AKS cluster name"
+  type        = string
+  default     = "healthcare-aks-cluster-dev"
+}
+
+variable "os_disk_size_gb" {
+  description = "OS disk size in GB"
+  type        = number
+  default     = 30
+}
+
+variable "vm_size" {
+  description = "VM size for AKS nodes"
+  type        = string
+  default     = "Standard_B2s"
+}
+
+variable "node_count" {
+  description = "Number of AKS nodes"
+  type        = number
+  default     = 1
+}
