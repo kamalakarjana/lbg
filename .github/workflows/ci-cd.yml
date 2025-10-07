@@ -288,7 +288,7 @@ jobs:
             --ignore-unfixed \
             --exit-code 0
 
-  # PHASE 5: TERRAFORM INFRASTRUCTURE - FIXED VERSION
+  # PHASE 5: TERRAFORM INFRASTRUCTURE - COMPLETELY FIXED VERSION
   terraform_infrastructure:
     name: "5. Terraform Infrastructure - ${{ needs.checkout_and_setup.outputs.environment }}"
     runs-on: ubuntu-latest
@@ -368,7 +368,7 @@ jobs:
             -input=false \
             -upgrade
 
-      # FIXED: Enhanced infrastructure import with subnet NSG association
+      # COMPLETELY FIXED: Enhanced infrastructure import with proper error handling
       - name: Check and Import Existing Infrastructure
         if: github.event_name != 'pull_request'
         run: |
@@ -386,9 +386,17 @@ jobs:
             
             if az resource show --ids "$azure_resource_id" &>/dev/null; then
               echo "🔄 Importing $resource_type: $resource_name"
-              terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} import \
+              if terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} import \
                 "$terraform_address" \
-                "$azure_resource_id" 2>/dev/null || echo "⚠️ $resource_type may already be in state or import failed"
+                "$azure_resource_id" 2>&1 | grep -q "already exists"; then
+                echo "✅ $resource_type already in state"
+              elif terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} import \
+                "$terraform_address" \
+                "$azure_resource_id" 2>&1 | grep -q "error"; then
+                echo "⚠️ Failed to import $resource_type, but continuing..."
+              else
+                echo "✅ Successfully imported $resource_type"
+              fi
             else
               echo "ℹ️ $resource_type does not exist, will be created: $resource_name"
             fi
@@ -419,7 +427,7 @@ jobs:
             "module.network.azurerm_subnet.aks" \
             "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Network/virtualNetworks/vnet-${{ needs.checkout_and_setup.outputs.environment }}-healthcare/subnets/snet-aks-${{ needs.checkout_and_setup.outputs.environment }}"
           
-          # CRITICAL FIX: Import subnet NSG association if it exists
+          # CRITICAL FIX: Import subnet NSG association with proper error handling
           echo "🔍 Checking for existing Subnet NSG Association..."
           SUBNET_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Network/virtualNetworks/vnet-${{ needs.checkout_and_setup.outputs.environment }}-healthcare/subnets/snet-aks-${{ needs.checkout_and_setup.outputs.environment }}"
           NSG_ID="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Network/networkSecurityGroups/nsg-aks-${{ needs.checkout_and_setup.outputs.environment }}"
@@ -432,11 +440,19 @@ jobs:
             --query networkSecurityGroup.id -o tsv 2>/dev/null || echo "")
           
           if [[ -n "$CURRENT_NSG" && "$CURRENT_NSG" == *"networkSecurityGroups/nsg-aks-${{ needs.checkout_and_setup.outputs.environment }}"* ]]; then
-            echo "🔄 Importing Subnet NSG Association"
+            echo "🔄 Importing Subnet NSG Association..."
             # Import using the combined ID format: subnet_id|nsg_id
-            terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} import \
+            if terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} import \
               "module.network.azurerm_subnet_network_security_group_association.aks" \
-              "$SUBNET_ID|$NSG_ID" 2>/dev/null || echo "⚠️ Subnet NSG Association may already be in state or import failed"
+              "$SUBNET_ID|$NSG_ID" 2>&1 | grep -q "already exists"; then
+              echo "✅ Subnet NSG Association already in state"
+            elif terraform -chdir=terraform/environments/${{ needs.checkout_and_setup.outputs.environment }} import \
+              "module.network.azurerm_subnet_network_security_group_association.aks" \
+              "$SUBNET_ID|$NSG_ID" 2>&1 | grep -q "error"; then
+              echo "⚠️ Failed to import Subnet NSG Association, but continuing..."
+            else
+              echo "✅ Successfully imported Subnet NSG Association"
+            fi
           else
             echo "ℹ️ Subnet NSG Association does not exist, will be created"
           fi
@@ -566,7 +582,7 @@ jobs:
             echo "✅ ACR role assignment already exists"
           fi
 
-  # PHASE 6: HELM DEPLOYMENT - FIXED
+  # PHASE 6: HELM DEPLOYMENT
   helm_deployment:
     name: "6. Helm Deployment - ${{ needs.terraform_infrastructure.outputs.environment }}"
     runs-on: ubuntu-latest
@@ -638,7 +654,7 @@ jobs:
 
   # PHASE 7: VERIFICATION & SMOKE TESTS
   verify_deployment:
-    name: "7. Verify Deployment - ${{ needs.helm_deployment.outputs.environment }}"
+    name: "7. Verify Deployment - ${{ needs.terraform_infrastructure.outputs.environment }}"
     runs-on: ubuntu-latest
     needs: helm_deployment
     environment: ${{ needs.terraform_infrastructure.outputs.environment }}
