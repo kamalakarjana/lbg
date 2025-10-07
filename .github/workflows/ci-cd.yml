@@ -56,18 +56,21 @@ jobs:
           cd infrastructure
           terraform fmt -recursive
 
-      - name: Import Existing Resource Group
+      - name: Import Existing Resources
         run: |
           cd infrastructure
           echo "Importing existing resource group into Terraform state..."
           terraform import module.resource_group.azurerm_resource_group.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-lbg-demo-dev || echo "Resource group may already be imported or import failed, continuing..."
+          
+          echo "Importing existing ACR into Terraform state..."
+          terraform import module.acr.azurerm_container_registry.main /subscriptions/${{ secrets.AZURE_SUBSCRIPTION_ID }}/resourceGroups/rg-lbg-demo-dev/providers/Microsoft.ContainerRegistry/registries/acrlbgdemodev || echo "ACR may already be imported or import failed, continuing..."
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
-      - name: Terraform Plan
+      - name: Terraform Plan with Updated CIDR
         run: |
           cd infrastructure
           terraform plan \
@@ -81,6 +84,8 @@ jobs:
             -var="node_count=2" \
             -var="vm_size=Standard_D2s_v3" \
             -var="kubernetes_version=1.27.7" \
+            -var="service_cidr=10.0.2.0/24" \
+            -var="dns_service_ip=10.0.2.10" \
             -out=tfplan
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
