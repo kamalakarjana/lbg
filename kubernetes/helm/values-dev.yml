@@ -1,6 +1,6 @@
 global:
   environment: dev
-  namespace: lbg-ns  # ADD THIS LINE
+  namespace: lbg-ns  # ADDED: Missing namespace
 
 patientService:
   replicaCount: 2
@@ -9,8 +9,8 @@ patientService:
   hpa:
     minReplicas: 1
     maxReplicas: 5
-    targetCPU: 50    # ADD THESE TWO LINES
-    targetMemory: 70 # ADD THESE TWO LINES
+    targetCPU: 50    # ADDED: Missing HPA targets
+    targetMemory: 70 # ADDED: Missing HPA targets
 
 appointmentService:
   replicaCount: 2
@@ -19,8 +19,8 @@ appointmentService:
   hpa:
     minReplicas: 1
     maxReplicas: 5
-    targetCPU: 50    # ADD THESE TWO LINES
-    targetMemory: 70 # ADD THESE TWO LINES
+    targetCPU: 50    # ADDED: Missing HPA targets
+    targetMemory: 70 # ADDED: Missing HPA targets
 
 ingress:
   enabled: true
@@ -39,5 +39,5 @@ image:
   credentials:
     username: "acrlbgdemodev"
     password: "cLbic1o0qQPT+vHBDsGWzFBZ+WAN9x+Q5jnPd9DDgK+ACRCLJ5Lt"
-  registry: acrlbgdemodev.azurecr.io  # ADD THIS LINE
-  pullPolicy: IfNotPresent           # ADD THIS LINE
+  registry: acrlbgdemodev.azurecr.io  # ADDED: Missing registry
+  pullPolicy: IfNotPresent           # ADDED: Missing pullPolicy

@@ -5,13 +5,14 @@ metadata:
   name: lbg-app-ingress
   namespace: {{ .Values.global.namespace }}
   annotations:
-    kubernetes.io/ingress.class: {{ .Values.ingress.className }}
+    # Remove deprecated kubernetes.io/ingress.class annotation
     nginx.ingress.kubernetes.io/rewrite-target: /
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
     {{- range $key, $value := .Values.ingress.annotations }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
 spec:
+  ingressClassName: {{ .Values.ingress.className }}  # Use new spec field instead of annotation
   rules:
   {{- range .Values.ingress.hosts }}
   - host: {{ .host }}

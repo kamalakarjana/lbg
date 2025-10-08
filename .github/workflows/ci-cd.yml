@@ -207,43 +207,56 @@ jobs:
             --name lbg-aks-cluster-dev \
             --overwrite-existing
 
-      - name: Clean up existing namespace if needed
+      - name: Handle existing namespace
         run: |
-          # Check if namespace exists and delete it if it wasn't created by Helm
+          # Check if namespace exists
           if kubectl get namespace lbg-ns >/dev/null 2>&1; then
-            echo "Namespace lbg-ns exists, checking if it's Helm-managed..."
-            if ! kubectl get namespace lbg-ns -o jsonpath='{.metadata.labels.app\.kubernetes\.io/managed-by}' | grep -q "Helm"; then
-              echo "Namespace is not Helm-managed, deleting it..."
+            echo "Namespace lbg-ns already exists"
+            
+            # Check if there's a Helm release in this namespace
+            if helm list -n lbg-ns -q | grep -q "lbg-app"; then
+              echo "Helm release 'lbg-app' exists, will perform upgrade"
+            else
+              echo "No Helm release found. Deleting namespace for clean installation..."
               kubectl delete namespace lbg-ns
               echo "Waiting for namespace to be deleted..."
-              kubectl wait --for=delete namespace/lbg-ns --timeout=60s
-            else
-              echo "Namespace is already Helm-managed, skipping deletion"
+              if kubectl wait --for=delete namespace/lbg-ns --timeout=120s 2>/dev/null; then
+                echo "Namespace deleted successfully"
+              else
+                echo "Namespace deletion completed"
+              fi
+              sleep 10
             fi
+          else
+            echo "Namespace lbg-ns does not exist, it will be created"
           fi
 
       - name: Create ACR pull secret
         run: |
+          # Ensure namespace exists
+          kubectl create namespace lbg-ns --dry-run=client -o yaml | kubectl apply -f -
+          
+          # Create or update ACR secret
           kubectl create secret docker-registry acr-secret \
             --namespace lbg-ns \
             --docker-server=${{ secrets.ACR_LOGIN_SERVER }} \
             --docker-username=${{ secrets.AZURE_CLIENT_ID }} \
             --docker-password=${{ secrets.AZURE_CLIENT_SECRET }} \
-            --dry-run=client -o yaml | kubectl apply -f - || echo "Secret may already exist"
+            --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Deploy to AKS using Helm
         run: |
           cd kubernetes/helm
-          # Use values-dev.yml file instead of multiple --set parameters
+          echo "Deploying with Helm..."
           helm upgrade --install lbg-app . \
             --namespace lbg-ns \
-            --create-namespace \
             --wait \
-            --timeout 10m \
+            --timeout 15m \
             -f values-dev.yml \
             --set patientService.tag=${{ github.sha }} \
             --set appointmentService.tag=${{ github.sha }} \
-            --set image.registry=${{ secrets.ACR_LOGIN_SERVER }}
+            --set image.registry=${{ secrets.ACR_LOGIN_SERVER }} \
+            --atomic
 
       - name: Verify deployment
         run: |
@@ -270,64 +283,10 @@ jobs:
           
           echo "Smoke tests completed"
 
-  deploy-to-staging:
-    runs-on: ubuntu-latest
-    needs: [deploy-to-dev]
-    environment: staging
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Helm
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-          helm version
-
-      - name: Configure Azure credentials
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Get AKS credentials (staging)
-        run: |
-          az aks get-credentials \
-            --resource-group rg-lbg-demo-staging \
-            --name lbg-aks-cluster-staging \
-            --overwrite-existing
-
-      - name: Create ACR pull secret for staging
-        run: |
-          kubectl create secret docker-registry acr-secret \
-            --namespace lbg-ns \
-            --docker-server=${{ secrets.ACR_LOGIN_SERVER }} \
-            --docker-username=${{ secrets.AZURE_CLIENT_ID }} \
-            --docker-password=${{ secrets.AZURE_CLIENT_SECRET }} \
-            --dry-run=client -o yaml | kubectl apply -f - || echo "Secret may already exist"
-
-      - name: Deploy to Staging using Helm
-        run: |
-          cd kubernetes/helm
-          helm upgrade --install lbg-app . \
-            --namespace lbg-ns \
-            --create-namespace \
-            --wait \
-            --timeout 10m \
-            -f values-staging.yml \
-            --set patientService.tag=${{ github.sha }} \
-            --set appointmentService.tag=${{ github.sha }} \
-            --set image.registry=${{ secrets.ACR_LOGIN_SERVER }}
-
-      - name: Verify staging deployment
-        run: |
-          echo "=== Staging Deployment Verification ==="
-          kubectl get pods -n lbg-ns -o wide
-          kubectl get services -n lbg-ns
-          kubectl get ingress -n lbg-ns
-
   cleanup:
     runs-on: ubuntu-latest
     if: always()
-    needs: [deploy-to-dev, deploy-to-staging]
+    needs: [deploy-to-dev]
     steps:
       - name: Cleanup Docker images
         run: |

@@ -6,7 +6,7 @@ image:
   registry: acrlbgdemodev.azurecr.io
   pullPolicy: IfNotPresent
 
-# ADD THIS MISSING SECTION
+# FIX: Added missing persistence section
 persistence:
   enabled: false
   size: 1Gi
