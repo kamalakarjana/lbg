@@ -5,13 +5,20 @@ global:
 image:
   registry: acrlbgdemodev.azurecr.io
   pullPolicy: IfNotPresent
-  
+
+# ADD THIS MISSING SECTION
+persistence:
+  enabled: false
+  size: 1Gi
+  storageClass: "default"
+
 patientService:
   name: patient-service
   replicaCount: 2
   image: patient-service
   tag: latest
   port: 3000
+  serviceType: ClusterIP
   resources:
     requests:
       memory: "64Mi"
@@ -31,6 +38,7 @@ appointmentService:
   image: appointment-service
   tag: latest
   port: 3001
+  serviceType: ClusterIP
   resources:
     requests:
       memory: "64Mi"

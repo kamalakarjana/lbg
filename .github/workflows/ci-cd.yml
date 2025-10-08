@@ -234,19 +234,16 @@ jobs:
       - name: Deploy to AKS using Helm
         run: |
           cd kubernetes/helm
+          # Use values-dev.yml file instead of multiple --set parameters
           helm upgrade --install lbg-app . \
             --namespace lbg-ns \
             --create-namespace \
             --wait \
             --timeout 10m \
-            --set global.environment=dev \
-            --set image.registry=${{ secrets.ACR_LOGIN_SERVER }} \
-            --set patientService.image=patient-service \
+            -f values-dev.yml \
             --set patientService.tag=${{ github.sha }} \
-            --set appointmentService.image=appointment-service \
             --set appointmentService.tag=${{ github.sha }} \
-            --set patientService.replicaCount=2 \
-            --set appointmentService.replicaCount=2
+            --set image.registry=${{ secrets.ACR_LOGIN_SERVER }}
 
       - name: Verify deployment
         run: |
@@ -256,6 +253,10 @@ jobs:
           kubectl get services -n lbg-ns
           echo ""
           kubectl get ingress -n lbg-ns
+          echo ""
+          kubectl get hpa -n lbg-ns
+          echo ""
+          kubectl get pvc -n lbg-ns
 
       - name: Run smoke tests
         run: |
@@ -269,10 +270,64 @@ jobs:
           
           echo "Smoke tests completed"
 
+  deploy-to-staging:
+    runs-on: ubuntu-latest
+    needs: [deploy-to-dev]
+    environment: staging
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          helm version
+
+      - name: Configure Azure credentials
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS credentials (staging)
+        run: |
+          az aks get-credentials \
+            --resource-group rg-lbg-demo-staging \
+            --name lbg-aks-cluster-staging \
+            --overwrite-existing
+
+      - name: Create ACR pull secret for staging
+        run: |
+          kubectl create secret docker-registry acr-secret \
+            --namespace lbg-ns \
+            --docker-server=${{ secrets.ACR_LOGIN_SERVER }} \
+            --docker-username=${{ secrets.AZURE_CLIENT_ID }} \
+            --docker-password=${{ secrets.AZURE_CLIENT_SECRET }} \
+            --dry-run=client -o yaml | kubectl apply -f - || echo "Secret may already exist"
+
+      - name: Deploy to Staging using Helm
+        run: |
+          cd kubernetes/helm
+          helm upgrade --install lbg-app . \
+            --namespace lbg-ns \
+            --create-namespace \
+            --wait \
+            --timeout 10m \
+            -f values-staging.yml \
+            --set patientService.tag=${{ github.sha }} \
+            --set appointmentService.tag=${{ github.sha }} \
+            --set image.registry=${{ secrets.ACR_LOGIN_SERVER }}
+
+      - name: Verify staging deployment
+        run: |
+          echo "=== Staging Deployment Verification ==="
+          kubectl get pods -n lbg-ns -o wide
+          kubectl get services -n lbg-ns
+          kubectl get ingress -n lbg-ns
+
   cleanup:
     runs-on: ubuntu-latest
     if: always()
-    needs: [deploy-to-dev]
+    needs: [deploy-to-dev, deploy-to-staging]
     steps:
       - name: Cleanup Docker images
         run: |

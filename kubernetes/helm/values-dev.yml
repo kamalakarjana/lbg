@@ -1,5 +1,6 @@
 global:
   environment: dev
+  namespace: lbg-ns  # ADD THIS LINE
 
 patientService:
   replicaCount: 2
@@ -8,6 +9,8 @@ patientService:
   hpa:
     minReplicas: 1
     maxReplicas: 5
+    targetCPU: 50    # ADD THESE TWO LINES
+    targetMemory: 70 # ADD THESE TWO LINES
 
 appointmentService:
   replicaCount: 2
@@ -16,6 +19,8 @@ appointmentService:
   hpa:
     minReplicas: 1
     maxReplicas: 5
+    targetCPU: 50    # ADD THESE TWO LINES
+    targetMemory: 70 # ADD THESE TWO LINES
 
 ingress:
   enabled: true
@@ -34,3 +39,5 @@ image:
   credentials:
     username: "acrlbgdemodev"
     password: "cLbic1o0qQPT+vHBDsGWzFBZ+WAN9x+Q5jnPd9DDgK+ACRCLJ5Lt"
+  registry: acrlbgdemodev.azurecr.io  # ADD THIS LINE
+  pullPolicy: IfNotPresent           # ADD THIS LINE
