@@ -6,7 +6,6 @@ image:
   registry: acrlbgdemodev.azurecr.io
   pullPolicy: IfNotPresent
 
-# FIX: Added missing persistence section
 persistence:
   enabled: false
   size: 1Gi
@@ -54,10 +53,16 @@ appointmentService:
 
 ingress:
   enabled: true
-  className: "azure/application-gateway"
-  annotations: {}
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
   hosts:
-    - host: lbg-app.dev.example.com
+    - host: lbg-app.dev.local
       paths:
-        - path: /
+        - path: /patients
+          pathType: Prefix
+        - path: /appointments
+          pathType: Prefix
+        - path: /health
           pathType: Prefix

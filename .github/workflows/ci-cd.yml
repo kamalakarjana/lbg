@@ -1,10 +1,10 @@
-name: lbg App CI/CD
+name: lbg App CI/CD - qwert Branch
 
 on:
   push:
-    branches: [main, qwert]
+    branches: [qwert]
   pull_request:
-    branches: [main]
+    branches: [qwert]
 
 env:
   ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
@@ -14,115 +14,43 @@ env:
   AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
   NODE_VERSION: '18'
   TERRAFORM_VERSION: '1.5.0'
+  HELM_VERSION: '3.14.0'
 
 jobs:
-  terraform-infrastructure:
-    runs-on: ubuntu-latest
-    environment: dev
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TERRAFORM_VERSION }}
-
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Get Current AKS Version
-        id: get_aks_version
-        run: |
-          CURRENT_VERSION=$(az aks show --name lbg-aks-cluster-dev --resource-group rg-lbg-demo-dev --query kubernetesVersion -o tsv)
-          echo "Current AKS version: $CURRENT_VERSION"
-          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Terraform Init
-        run: |
-          cd infrastructure
-          terraform init \
-            -backend-config="resource_group_name=rg-lbg-demo-dev" \
-            -backend-config="storage_account_name=tfstatestorageacc0212" \
-            -backend-config="container_name=lbg-02-12-1994" \
-            -backend-config="key=terraform.lbg-02-12-1994"
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-      - name: Terraform Validate
-        run: |
-          cd infrastructure
-          terraform validate
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-      - name: Terraform Format
-        run: |
-          cd infrastructure
-          terraform fmt -recursive
-
-      - name: Terraform Plan
-        run: |
-          cd infrastructure
-          terraform plan \
-            -var="environment=dev" \
-            -var="resource_group_name=rg-lbg-demo-dev" \
-            -var="location=Central US" \
-            -var="acr_name=acrlbgdemodev" \
-            -var="aks_cluster_name=lbg-aks-cluster" \
-            -var="vnet_name=vnet-dev-lbg-app" \
-            -var="public_ip_name=pip-lb-dev-lbg-app" \
-            -var="vm_size=Standard_D2s_v3" \
-            -var="kubernetes_version=${{ steps.get_aks_version.outputs.current_version || '1.33.3' }}" \
-            -var="min_count=1" \
-            -var="max_count=5" \
-            -out=tfplan
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
-      - name: Terraform Apply
-        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/qwert'
-        run: |
-          cd infrastructure
-          echo "Applying Terraform plan on branch: ${{ github.ref }}"
-          terraform apply -auto-approve tfplan
-          echo "Terraform apply completed successfully"
-        env:
-          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-
   build-and-push:
     runs-on: ubuntu-latest
-    needs: terraform-infrastructure
     strategy:
       matrix:
         service: [patient-service, appointment-service]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Install dependencies for ${{ matrix.service }}
         run: |
           cd ${{ matrix.service }}
           npm install
 
-      - name: Build Docker image
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Azure Container Registry
+        run: |
+          az login --service-principal \
+            -u ${{ secrets.AZURE_CLIENT_ID }} \
+            -p ${{ secrets.AZURE_CLIENT_SECRET }} \
+            --tenant ${{ secrets.AZURE_TENANT_ID }}
+          az acr login --name acrlbgdemodev
+
+      - name: Build and Push Docker image for ${{ matrix.service }}
         run: |
           cd ${{ matrix.service }}
+          
+          # Build the image
           docker build \
             --tag ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }} \
             --tag ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:latest \
@@ -130,69 +58,48 @@ jobs:
             --build-arg VCS_REF=${{ github.sha }} \
             --build-arg VERSION=1.0.0 \
             .
-
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Log in to Azure Container Registry
-        run: |
-          az acr login --name acrlbgdemodev
-
-      - name: Push Docker image
-        run: |
+          
+          # Push the image
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }}
           docker push ${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:latest
+          
+          echo "Successfully built and pushed ${{ matrix.service }}:${{ github.sha }}"
 
-  trivy-scan:
+  security-scan:
     runs-on: ubuntu-latest
-    needs: build-and-push
+    needs: [build-and-push]
     strategy:
       matrix:
         service: [patient-service, appointment-service]
     steps:
+      - uses: actions/checkout@v4
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@0.24.0
         with:
           image-ref: '${{ secrets.ACR_LOGIN_SERVER }}/${{ matrix.service }}:${{ github.sha }}'
-          format: 'table'
+          format: 'sarif'
           severity: 'CRITICAL,HIGH'
           exit-code: 0
 
-      - name: Upload Trivy results as artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-results-${{ matrix.service }}
-          path: |
-            trivy-results-*.json
-            trivy-results-*.sarif
-          retention-days: 30
-
-  security-scan:
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    steps:
-      - uses: actions/checkout@v4
-
       - name: Run npm audit
         run: |
-          echo "Running npm audit for patient-service..."
-          cd patient-service && npm audit --audit-level high || echo "npm audit completed with warnings"
-          echo "Running npm audit for appointment-service..."
-          cd ../appointment-service && npm audit --audit-level high || echo "npm audit completed with warnings"
+          echo "Running npm audit for ${{ matrix.service }}..."
+          cd ${{ matrix.service }}
+          npm audit --audit-level high || echo "Audit completed"
 
   deploy-to-dev:
     runs-on: ubuntu-latest
-    needs: [terraform-infrastructure, trivy-scan, security-scan]
+    needs: [build-and-push, security-scan]
     environment: dev
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Helm
         run: |
-          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+          chmod 700 get_helm.sh
+          ./get_helm.sh --version v${{ env.HELM_VERSION }}
           helm version
 
       - name: Configure Azure credentials
@@ -207,36 +114,43 @@ jobs:
             --name lbg-aks-cluster-dev \
             --overwrite-existing
 
-      - name: Handle existing namespace
+      - name: Setup Kubernetes context
         run: |
-          # Check if namespace exists
-          if kubectl get namespace lbg-ns >/dev/null 2>&1; then
-            echo "Namespace lbg-ns already exists"
-            
-            # Check if there's a Helm release in this namespace
-            if helm list -n lbg-ns -q | grep -q "lbg-app"; then
-              echo "Helm release 'lbg-app' exists, will perform upgrade"
-            else
-              echo "No Helm release found. Deleting namespace for clean installation..."
-              kubectl delete namespace lbg-ns
-              echo "Waiting for namespace to be deleted..."
-              if kubectl wait --for=delete namespace/lbg-ns --timeout=120s 2>/dev/null; then
-                echo "Namespace deleted successfully"
-              else
-                echo "Namespace deletion completed"
-              fi
-              sleep 10
-            fi
+          kubectl config current-context
+          kubectl get nodes
+
+      - name: Install or Update Nginx Ingress Controller
+        run: |
+          helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+          helm repo update
+          helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+            --namespace ingress-nginx \
+            --create-namespace \
+            --set controller.service.type=LoadBalancer \
+            --set controller.ingressClassResource.name=nginx \
+            --set controller.ingressClassResource.controllerValue="k8s.io/ingress-nginx" \
+            --wait \
+            --timeout 5m
+
+      - name: Wait for LoadBalancer IP
+        run: |
+          echo "Waiting for LoadBalancer IP assignment..."
+          timeout 300s bash -c 'until kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath="{.status.loadBalancer.ingress[0].ip}" | grep -q "."; do sleep 5; done'
+          EXTERNAL_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          echo "External IP: $EXTERNAL_IP"
+          echo "external_ip=$EXTERNAL_IP" >> $GITHUB_ENV
+
+      - name: Create namespace if not exists
+        run: |
+          if ! kubectl get namespace lbg-ns &> /dev/null; then
+            echo "Creating namespace lbg-ns..."
+            kubectl create namespace lbg-ns
           else
-            echo "Namespace lbg-ns does not exist, it will be created"
+            echo "Namespace lbg-ns already exists"
           fi
 
       - name: Create ACR pull secret
         run: |
-          # Ensure namespace exists
-          kubectl create namespace lbg-ns --dry-run=client -o yaml | kubectl apply -f -
-          
-          # Create or update ACR secret
           kubectl create secret docker-registry acr-secret \
             --namespace lbg-ns \
             --docker-server=${{ secrets.ACR_LOGIN_SERVER }} \
@@ -244,10 +158,19 @@ jobs:
             --docker-password=${{ secrets.AZURE_CLIENT_SECRET }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Deploy to AKS using Helm
+      - name: Deploy Application with Helm
         run: |
           cd kubernetes/helm
-          echo "Deploying with Helm..."
+          
+          # Template test first
+          helm template lbg-app . \
+            --namespace lbg-ns \
+            -f values-dev.yml \
+            --set patientService.tag=${{ github.sha }} \
+            --set appointmentService.tag=${{ github.sha }} \
+            --set image.registry=${{ secrets.ACR_LOGIN_SERVER }}
+          
+          # Install/Upgrade the release
           helm upgrade --install lbg-app . \
             --namespace lbg-ns \
             --wait \
@@ -261,27 +184,50 @@ jobs:
       - name: Verify deployment
         run: |
           echo "=== Deployment Verification ==="
-          kubectl get pods -n lbg-ns -o wide
-          echo ""
-          kubectl get services -n lbg-ns
+          kubectl get all -n lbg-ns
           echo ""
           kubectl get ingress -n lbg-ns
           echo ""
-          kubectl get hpa -n lbg-ns
-          echo ""
-          kubectl get pvc -n lbg-ns
+          kubectl get hpa -n lbg-ns 2>/dev/null || echo "HPA not configured"
 
-      - name: Run smoke tests
+      - name: Get Access URLs
         run: |
-          echo "Waiting for services to be ready..."
+          EXTERNAL_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          echo "🎉 DEPLOYMENT SUCCESSFUL!"
+          echo ""
+          echo "📱 ACCESS YOUR APPLICATION:"
+          echo "================================"
+          echo "External IP: $EXTERNAL_IP"
+          echo ""
+          echo "Add this to your /etc/hosts file:"
+          echo "$EXTERNAL_IP lbg-app.dev.local"
+          echo ""
+          echo "🌐 Browser Access URLs:"
+          echo "Patient Service:    http://lbg-app.dev.local/patients"
+          echo "Appointment Service: http://lbg-app.dev.local/appointments" 
+          echo "Health Check:       http://lbg-app.dev.local/health"
+          echo ""
+          echo "For immediate testing, run these commands:"
+          echo "echo '$EXTERNAL_IP lbg-app.dev.local' | sudo tee -a /etc/hosts"
+
+      - name: Run comprehensive health checks
+        run: |
+          echo "=== Running Health Checks ==="
+          
+          # Wait for pods to be ready
+          echo "Waiting for pods to be ready..."
           kubectl wait --for=condition=ready pod -l app=patient-service -n lbg-ns --timeout=300s
           kubectl wait --for=condition=ready pod -l app=appointment-service -n lbg-ns --timeout=300s
           
-          echo "Testing health endpoints..."
-          kubectl run -it --rm --restart=Never test-patient --image=curlimages/curl --namespace=lbg-ns --command -- curl -s -f http://patient-service:3000/health && echo "Patient service: HEALTHY" || echo "Patient service: UNHEALTHY"
-          kubectl run -it --rm --restart=Never test-appointment --image=curlimages/curl --namespace=lbg-ns --command -- curl -s -f http://appointment-service:3001/health && echo "Appointment service: HEALTHY" || echo "Appointment service: UNHEALTHY"
+          # Test internal health endpoints
+          echo "Testing internal service health..."
+          kubectl exec -n lbg-ns deployment/patient-service -- curl -s -f http://localhost:3000/health && echo "✅ Patient service internal health: OK" || echo "❌ Patient service internal health: FAILED"
+          kubectl exec -n lbg-ns deployment/appointment-service -- curl -s -f http://localhost:3001/health && echo "✅ Appointment service internal health: OK" || echo "❌ Appointment service internal health: FAILED"
           
-          echo "Smoke tests completed"
+          # Test service-to-service communication
+          echo "Testing service communication..."
+          kubectl exec -n lbg-ns deployment/patient-service -- curl -s -f http://appointment-service:3001/health && echo "✅ Patient -> Appointment communication: OK" || echo "❌ Patient -> Appointment communication: FAILED"
+          kubectl exec -n lbg-ns deployment/appointment-service -- curl -s -f http://patient-service:3000/health && echo "✅ Appointment -> Patient communication: OK" || echo "❌ Appointment -> Patient communication: FAILED"
 
   cleanup:
     runs-on: ubuntu-latest
