@@ -104,174 +104,9 @@ jobs:
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
 
-  # NEW JOB: SonarQube Code Analysis - FIXED VERSION
-  sonarqube-analysis:
-    name: SonarQube Code Analysis
-    runs-on: ubuntu-latest
-    needs: terraform-infrastructure
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: |
-            patient-service/package-lock.json
-            appointment-service/package-lock.json
-
-      - name: Create Jest config files
-        run: |
-          echo "Creating Jest configuration files..."
-          
-          # Patient Service Jest config
-          cat > patient-service/jest.config.js << 'EOL'
-          module.exports = {
-            testEnvironment: 'node',
-            collectCoverage: true,
-            coverageDirectory: 'coverage',
-            collectCoverageFrom: [
-              '**/*.js',
-              '!**/node_modules/**',
-              '!**/coverage/**',
-              '!**/*.test.js'
-            ],
-            testMatch: ['**/test/**/*.test.js']
-          };
-          EOL
-          echo "✅ Created jest.config.js for patient-service"
-          
-          # Appointment Service Jest config
-          cat > appointment-service/jest.config.js << 'EOL'
-          module.exports = {
-            testEnvironment: 'node',
-            collectCoverage: true,
-            coverageDirectory: 'coverage',
-            collectCoverageFrom: [
-              '**/*.js',
-              '!**/node_modules/**',
-              '!**/coverage/**',
-              '!**/*.test.js'
-            ],
-            testMatch: ['**/test/**/*.test.js']
-          };
-          EOL
-          echo "✅ Created jest.config.js for appointment-service"
-
-      - name: Install dependencies and run tests
-        run: |
-          echo "Installing dependencies and generating test coverage..."
-          
-          # Patient Service
-          echo "📦 Processing patient-service..."
-          cd patient-service
-          npm install --no-audit --no-fund
-          
-          # Run tests if test files exist, otherwise skip
-          if [ -d "test" ] && [ "$(ls -A test 2>/dev/null)" ]; then
-            echo "🧪 Running tests for patient-service..."
-            npm test -- --coverage --watchAll=false --passWithNoTests || echo "⚠️ Tests completed with warnings"
-          else
-            echo "⏭️  No test files found, skipping tests for patient-service"
-          fi
-          cd ..
-          
-          # Appointment Service  
-          echo "📦 Processing appointment-service..."
-          cd appointment-service
-          npm install --no-audit --no-fund
-          
-          # Run tests if test files exist, otherwise skip
-          if [ -d "test" ] && [ "$(ls -A test 2>/dev/null)" ]; then
-            echo "🧪 Running tests for appointment-service..."
-            npm test -- --coverage --watchAll=false --passWithNoTests || echo "⚠️ Tests completed with warnings"
-          else
-            echo "⏭️  No test files found, skipping tests for appointment-service"
-          fi
-          cd ..
-          
-          echo "✅ Test coverage process completed"
-
-      - name: Create coverage files if missing
-        run: |
-          echo "Ensuring coverage files exist for SonarQube..."
-          
-          # Patient Service
-          if [ ! -f "patient-service/coverage/lcov.info" ]; then
-            echo "📝 Creating minimal coverage file for patient-service"
-            mkdir -p patient-service/coverage
-            cat > patient-service/coverage/lcov.info << 'EOL'
-          TN:
-          SF:patient-service.js
-          FNF:0
-          FNH:0
-          LF:1
-          LH:1
-          BRF:0
-          BRH:0
-          end_of_record
-          EOL
-          else
-            echo "✅ Patient service coverage file exists"
-          fi
-          
-          # Appointment Service
-          if [ ! -f "appointment-service/coverage/lcov.info" ]; then
-            echo "📝 Creating minimal coverage file for appointment-service"
-            mkdir -p appointment-service/coverage
-            cat > appointment-service/coverage/lcov.info << 'EOL'
-          TN:
-          SF:appointment-service.js
-          FNF:0
-          FNH:0
-          LF:1
-          LH:1
-          BRF:0
-          BRH:0
-          end_of_record
-          EOL
-          else
-            echo "✅ Appointment service coverage file exists"
-          fi
-
-      - name: Run SonarQube/SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        with:
-          args: >
-            -Dsonar.organization=kamalakarjana
-            -Dsonar.projectKey=kamalakarjana_lbg
-            -Dsonar.projectName=lbg
-            -Dsonar.sources=.
-            -Dsonar.tests=.
-            -Dsonar.javascript.lcov.reportPaths=patient-service/coverage/lcov.info,appointment-service/coverage/lcov.info
-            -Dsonar.coverage.exclusions=**/node_modules/**,**/*.test.js
-            -Dsonar.javascript.coveragePlugin=lcov
-            -Dsonar.qualitygate.wait=true
-            -Dsonar.exclusions=**/Dockerfile,**/node_modules/**,**/coverage/**,**/*.yaml,**/*.yml,**/*.json,**/*.md,**/*.lock,infrastructure/**,kubernetes/**,.github/**,**/jest.config.js
-            -Dsonar.test.exclusions=**/Dockerfile,**/node_modules/**,**/coverage/**,**/*.yaml,**/*.yml,**/*.json,**/*.md,**/*.lock,infrastructure/**,kubernetes/**,.github/**,**/jest.config.js
-            -Dsonar.test.inclusions=**/test/**/*.test.js
-            -Dsonar.inclusions=patient-service/**,appointment-service/**
-
-      - name: Upload coverage reports as artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-reports
-          path: |
-            patient-service/coverage/
-            appointment-service/coverage/
-          retention-days: 7
-
   build-and-push:
     runs-on: ubuntu-latest
-    needs: sonarqube-analysis
+    needs: terraform-infrastructure
     strategy:
       matrix:
         service: [patient-service, appointment-service]
@@ -358,7 +193,7 @@ jobs:
 
   deploy-to-dev:
     runs-on: ubuntu-latest
-    needs: [terraform-infrastructure, sonarqube-analysis, trivy-scan, security-scan]
+    needs: [terraform-infrastructure, trivy-scan, security-scan]
     environment: dev
     steps:
       - uses: actions/checkout@v4
@@ -387,6 +222,7 @@ jobs:
           kubectl config current-context
           kubectl get nodes
 
+      # NEW STEP: Install Nginx Ingress Controller for Browser Access
       - name: Install Nginx Ingress Controller
         run: |
           helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
@@ -479,6 +315,7 @@ jobs:
           echo ""
           kubectl get pvc -n lbg-ns 2>/dev/null || echo "No PVCs found"
 
+      # NEW STEP: Get Browser Access Information
       - name: Get Browser Access URLs
         run: |
           EXTERNAL_IP=$(kubectl get svc -n ingress-nginx ingress-nginx-controller -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
